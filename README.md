@@ -1,8 +1,8 @@
-# Gesture ML Toolkit — Quick Start
+# Gesture ML Toolkit 
 
 ## Get the project
 
-Don't download these files individually — get the **whole repo** so
+Don't download these files individually get the **whole repo** so
 everything (the scripts + the setup files) lands in the same folder
 automatically:
 
@@ -22,7 +22,7 @@ Either way, you should end up with one folder containing `record_gesture.py`,
 ## Try it now with the included pretrained model
 
 This repo already ships a trained model in `gesture_model/`, so you don't
-have to record or train anything to try it out — just run the setup script
+have to record or train anything to try it out, just run the setup script
 and pick **option 3 (Run gesture UI server)** straight away. It recognizes
 3 gestures out of the box:
 
