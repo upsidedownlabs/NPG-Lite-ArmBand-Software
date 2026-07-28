@@ -1,0 +1,346 @@
+{
+  "subjects": {
+    "aman": {
+      "rest": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "rest_trial1_20260728-145816_merged_DACE.csv",
+            "beep_json": "rest_trial1_20260728-145816_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T14:58:17",
+            "mode": "continuous",
+            "num_samples": 31240,
+            "num_channels": 3,
+            "num_segments": 1,
+            "total_valid_samples": 29870,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "rest_trial2_20260728-145925_merged_DACE.csv",
+            "beep_json": "rest_trial2_20260728-145925_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T14:59:26",
+            "mode": "continuous",
+            "num_samples": 31160,
+            "num_channels": 3,
+            "num_segments": 1,
+            "total_valid_samples": 29850,
+            "include_in_training": true
+          }
+        ]
+      },
+      "pinch": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "pinch_trial1_20260728-150107_merged_DACE.csv",
+            "beep_json": "pinch_trial1_20260728-150107_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:01:08",
+            "mode": "reps",
+            "num_samples": 31000,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 13830,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "pinch_trial2_20260728-150218_merged_DACE.csv",
+            "beep_json": "pinch_trial2_20260728-150218_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:02:19",
+            "mode": "reps",
+            "num_samples": 30980,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 13410,
+            "include_in_training": true
+          }
+        ]
+      },
+      "flexion": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "flexion_trial1_20260728-150339_merged_DACE.csv",
+            "beep_json": "flexion_trial1_20260728-150339_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:03:40",
+            "mode": "reps",
+            "num_samples": 30980,
+            "num_channels": 3,
+            "num_segments": 8,
+            "total_valid_samples": 15080,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "flexion_trial2_20260728-150459_merged_DACE.csv",
+            "beep_json": "flexion_trial2_20260728-150459_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:05:00",
+            "mode": "reps",
+            "num_samples": 30980,
+            "num_channels": 3,
+            "num_segments": 10,
+            "total_valid_samples": 12280,
+            "include_in_training": true
+          }
+        ]
+      },
+      "extension": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "extension_trial1_20260728-150615_merged_DACE.csv",
+            "beep_json": "extension_trial1_20260728-150615_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:06:16",
+            "mode": "reps",
+            "num_samples": 31020,
+            "num_channels": 3,
+            "num_segments": 8,
+            "total_valid_samples": 14940,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "extension_trial2_20260728-150735_merged_DACE.csv",
+            "beep_json": "extension_trial2_20260728-150735_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:07:36",
+            "mode": "reps",
+            "num_samples": 30980,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 13590,
+            "include_in_training": true
+          }
+        ]
+      }
+    },
+    "aman2": {
+      "rest": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "rest_trial1_20260728-151157_merged_DACE.csv",
+            "beep_json": "rest_trial1_20260728-151157_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:11:58",
+            "mode": "continuous",
+            "num_samples": 31240,
+            "num_channels": 3,
+            "num_segments": 1,
+            "total_valid_samples": 29890,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "rest_trial2_20260728-151311_merged_DACE.csv",
+            "beep_json": "rest_trial2_20260728-151311_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:13:12",
+            "mode": "continuous",
+            "num_samples": 31140,
+            "num_channels": 3,
+            "num_segments": 1,
+            "total_valid_samples": 29850,
+            "include_in_training": true
+          }
+        ]
+      },
+      "pinch": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "pinch_trial1_20260728-151427_merged_DACE.csv",
+            "beep_json": "pinch_trial1_20260728-151427_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:14:28",
+            "mode": "reps",
+            "num_samples": 31000,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 12870,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "pinch_trial2_20260728-151546_merged_DACE.csv",
+            "beep_json": "pinch_trial2_20260728-151546_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:15:47",
+            "mode": "reps",
+            "num_samples": 30980,
+            "num_channels": 3,
+            "num_segments": 8,
+            "total_valid_samples": 13420,
+            "include_in_training": true
+          }
+        ]
+      },
+      "flexion": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "flexion_trial1_20260728-151706_merged_DACE.csv",
+            "beep_json": "flexion_trial1_20260728-151706_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:17:07",
+            "mode": "reps",
+            "num_samples": 31020,
+            "num_channels": 3,
+            "num_segments": 8,
+            "total_valid_samples": 15740,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "flexion_trial2_20260728-151820_merged_DACE.csv",
+            "beep_json": "flexion_trial2_20260728-151820_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:18:21",
+            "mode": "reps",
+            "num_samples": 30980,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 14410,
+            "include_in_training": true
+          }
+        ]
+      },
+      "extension": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "extension_trial1_20260728-151934_merged_DACE.csv",
+            "beep_json": "extension_trial1_20260728-151934_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:19:35",
+            "mode": "reps",
+            "num_samples": 30980,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 14650,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "extension_trial2_20260728-152046_merged_DACE.csv",
+            "beep_json": "extension_trial2_20260728-152046_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:20:47",
+            "mode": "reps",
+            "num_samples": 31000,
+            "num_channels": 3,
+            "num_segments": 10,
+            "total_valid_samples": 12700,
+            "include_in_training": true
+          }
+        ]
+      }
+    },
+    "amanmove": {
+      "rest": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "rest_trial1_20260728-153601_merged_DACE.csv",
+            "beep_json": "rest_trial1_20260728-153601_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:36:02",
+            "mode": "continuous",
+            "num_samples": 31220,
+            "num_channels": 3,
+            "num_segments": 1,
+            "total_valid_samples": 29870,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "rest_trial2_20260728-153715_merged_DACE.csv",
+            "beep_json": "rest_trial2_20260728-153715_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:37:16",
+            "mode": "continuous",
+            "num_samples": 31120,
+            "num_channels": 3,
+            "num_segments": 1,
+            "total_valid_samples": 29850,
+            "include_in_training": true
+          }
+        ]
+      },
+      "pinch": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "pinch_trial1_20260728-153835_merged_DACE.csv",
+            "beep_json": "pinch_trial1_20260728-153835_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:38:36",
+            "mode": "reps",
+            "num_samples": 31040,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 12370,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "pinch_trial2_20260728-153951_merged_DACE.csv",
+            "beep_json": "pinch_trial2_20260728-153951_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:39:52",
+            "mode": "reps",
+            "num_samples": 31040,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 14510,
+            "include_in_training": true
+          }
+        ]
+      },
+      "flexion": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "flexion_trial1_20260728-154107_merged_DACE.csv",
+            "beep_json": "flexion_trial1_20260728-154107_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:41:08",
+            "mode": "reps",
+            "num_samples": 31020,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 14210,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "flexion_trial2_20260728-154241_merged_DACE.csv",
+            "beep_json": "flexion_trial2_20260728-154241_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:42:42",
+            "mode": "reps",
+            "num_samples": 31000,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 13650,
+            "include_in_training": true
+          }
+        ]
+      },
+      "extension": {
+        "sessions": [
+          {
+            "trial": 1,
+            "csv": "extension_trial1_20260728-154400_merged_DACE.csv",
+            "beep_json": "extension_trial1_20260728-154400_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:44:01",
+            "mode": "reps",
+            "num_samples": 31020,
+            "num_channels": 3,
+            "num_segments": 9,
+            "total_valid_samples": 13610,
+            "include_in_training": true
+          },
+          {
+            "trial": 2,
+            "csv": "extension_trial2_20260728-154513_merged_DACE.csv",
+            "beep_json": "extension_trial2_20260728-154513_merged_DACE.beep.json",
+            "recorded_at": "2026-07-28T15:45:14",
+            "mode": "reps",
+            "num_samples": 31000,
+            "num_channels": 3,
+            "num_segments": 8,
+            "total_valid_samples": 15380,
+            "include_in_training": true
+          }
+        ]
+      }
+    }
+  }
+}

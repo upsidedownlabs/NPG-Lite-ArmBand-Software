@@ -1,0 +1,116 @@
+{
+  "arch": "cnn_lstm",
+  "window_size": 250,
+  "stride": 125,
+  "num_channels": 6,
+  "channel_columns": [
+    "ch1",
+    "ch2",
+    "ch3",
+    "accel_x",
+    "accel_y",
+    "accel_z"
+  ],
+  "sampling_rate": 500,
+  "classes": [
+    "extension",
+    "flexion",
+    "pinch",
+    "rest"
+  ],
+  "scaler_mean": [
+    -0.002413560403510928,
+    -0.005098459776490927,
+    -0.0008600572473369539,
+    2026.1715087890625,
+    -7180.59033203125,
+    13223.662109375
+  ],
+  "scaler_std": [
+    39.49000549316406,
+    59.930091857910156,
+    10.408474922180176,
+    3708.84130859375,
+    2340.7431640625,
+    1812.498291015625
+  ],
+  "used_beep_marker": true,
+  "files_without_beep_marker": [],
+  "subjects": [
+    "aman",
+    "aman2",
+    "amanmove"
+  ],
+  "excluded_sessions": [],
+  "train_accuracy": 0.9955297112464905,
+  "train_loss": 0.02637580782175064,
+  "val_accuracy": 0.9979122877120972,
+  "val_loss": 0.014169183559715748,
+  "test_accuracy": 0.9833333492279053,
+  "test_loss": 0.04086470231413841,
+  "test_classification_report": {
+    "extension": {
+      "precision": 1.0,
+      "recall": 0.9230769230769231,
+      "f1-score": 0.96,
+      "support": 91.0
+    },
+    "flexion": {
+      "precision": 1.0,
+      "recall": 0.989010989010989,
+      "f1-score": 0.994475138121547,
+      "support": 91.0
+    },
+    "pinch": {
+      "precision": 0.9230769230769231,
+      "recall": 1.0,
+      "f1-score": 0.96,
+      "support": 84.0
+    },
+    "rest": {
+      "precision": 0.9953488372093023,
+      "recall": 1.0,
+      "f1-score": 0.9976689976689976,
+      "support": 214.0
+    },
+    "accuracy": 0.9833333333333333,
+    "macro avg": {
+      "precision": 0.9796064400715564,
+      "recall": 0.9780219780219781,
+      "f1-score": 0.9780360339476362,
+      "support": 480.0
+    },
+    "weighted avg": {
+      "precision": 0.9844648181276089,
+      "recall": 0.9833333333333333,
+      "f1-score": 0.9833300063963046,
+      "support": 480.0
+    }
+  },
+  "test_confusion_matrix": [
+    [
+      84,
+      0,
+      7,
+      0
+    ],
+    [
+      0,
+      90,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      84,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      214
+    ]
+  ]
+}
