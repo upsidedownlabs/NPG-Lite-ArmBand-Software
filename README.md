@@ -19,6 +19,51 @@ Either way, you should end up with one folder containing `record_gesture.py`,
 `requirements.txt`, `setup_and_run.bat`, `setup_and_run.sh`, and
 `setup_and_run.command`.
 
+## Try it now with the included pretrained model
+
+This repo already ships a trained model in `gesture_model/`, so you don't
+have to record or train anything to try it out — just run the setup script
+and pick **option 3 (Run gesture UI server)** straight away. It recognizes
+3 gestures out of the box:
+
+- **Pinch**
+- **Flexion**
+- **Extension**
+
+<!-- TODO: add a photo/GIF for each gesture below so users can see exactly
+     how to perform it -->
+| Gesture | How to do it |
+|---|---|
+| Pinch | ![Pinch gesture](images/gesture_pinch.jpg) |
+| Flexion | ![Flexion gesture](images/gesture_flexion.jpg) |
+| Extension | ![Extension gesture](images/gesture_extension.jpg) |
+
+### Where to wear the ArmBand
+
+<!-- TODO: add a photo showing correct placement/orientation on the forearm -->
+![ArmBand placement on forearm](images/armband_placement.jpg)
+
+Place the ArmBand on your forearm, electrodes facing the skin, positioned
+over the muscle belly (roughly the upper third of the forearm, below the
+elbow) — this is where the pinch/flexion/extension muscle activity is
+strongest. Keep the band snug but not tight, and keep the same orientation
+every time you use it, since the pretrained model was trained on a specific
+placement/orientation.
+
+### If gestures aren't recognized correctly
+
+The pretrained model was trained on a specific person's arm, hand size, and
+electrode placement, so it may not generalize well to everyone. If the UI
+server misreads your gestures often:
+
+1. Run the setup script and pick **option 1 (Record gesture data)** to
+   record your own pinch / flexion / extension (and rest) trials.
+2. Then pick **option 2 (Train gesture model)** to train a model on your
+   own data.
+3. Finally go back to **option 3 (Run gesture UI server)** — it will now
+   use your freshly trained model instead of the bundled one, and should
+   track your gestures much more reliably.
+
 ## Windows
 Double-click **`setup_and_run.bat`**.
 - If Python isn't installed, it silently downloads and installs Python 3.12.7
@@ -29,6 +74,23 @@ Double-click **`setup_and_run.bat`**.
 
 If Windows shows a SmartScreen warning (common for unsigned `.bat`/`.exe`
 downloads), click "More info" → "Run anyway".
+
+If instead you see **"Smart App Control blocked a file that may be unsafe"**
+(this is stricter than SmartScreen and has no "Run anyway" button), unblock
+the file manually:
+1. Right-click `setup_and_run.bat` → **Properties**
+2. At the bottom of the **General** tab, check **Unblock** (next to "This
+   file came from another computer and might be blocked to help protect
+   this computer")
+3. Click **Apply** → **OK**, then run the script again
+
+If it's still blocked after that, Smart App Control may be in "enforced"
+mode. You can either run the script from an already-open terminal
+(`setup_and_run.bat` typed into PowerShell/Command Prompt in that folder) or
+turn off Smart App Control entirely via Settings → Privacy & security →
+Windows Security → App & browser control → Smart App Control settings → Off
+(note: on Windows 11 this is generally a one-way switch — you can't turn it
+back on without reinstalling Windows).
 
 ## macOS
 The executable permission on `.sh`/`.command` files doesn't survive a git
