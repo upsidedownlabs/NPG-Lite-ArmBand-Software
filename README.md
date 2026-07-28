@@ -1,8 +1,8 @@
-# Gesture ML Toolkit 
+# Gesture ML Toolkit — Quick Start
 
 ## Get the project
 
-Don't download these files individually get the **whole repo** so
+Don't download these files individually — get the **whole repo** so
 everything (the scripts + the setup files) lands in the same folder
 automatically:
 
@@ -22,7 +22,7 @@ Either way, you should end up with one folder containing `record_gesture.py`,
 ## Try it now with the included pretrained model
 
 This repo already ships a trained model in `gesture_model/`, so you don't
-have to record or train anything to try it out, just run the setup script
+have to record or train anything to try it out — just run the setup script
 and pick **option 3 (Run gesture UI server)** straight away. It recognizes
 3 gestures out of the box:
 
@@ -34,14 +34,14 @@ and pick **option 3 (Run gesture UI server)** straight away. It recognizes
      how to perform it -->
 | Gesture | How to do it |
 |---|---|
-| Pinch | ![Pinch gesture](images/gesture_pinch.jpg) |
-| Flexion | ![Flexion gesture](images/gesture_flexion.jpg) |
-| Extension | ![Extension gesture](images/gesture_extension.jpg) |
+| Pinch | ![Pinch gesture](images/gesture_pinch.webp) |
+| Flexion | ![Flexion gesture](images/gesture_flexion.webp) |
+| Extension | ![Extension gesture](images/gesture_extension.webp) |
 
 ### Where to wear the ArmBand
 
 <!-- TODO: add a photo showing correct placement/orientation on the forearm -->
-![ArmBand placement on forearm](images/armband_placement.jpg)
+![ArmBand placement on forearm](images/armband_placement.webp)
 
 Place the ArmBand on your forearm, electrodes facing the skin, positioned
 over the muscle belly (roughly the upper third of the forearm, below the
@@ -63,6 +63,117 @@ server misreads your gestures often:
 3. Finally go back to **option 3 (Run gesture UI server)** — it will now
    use your freshly trained model instead of the bundled one, and should
    track your gestures much more reliably.
+
+## Manual setup (if you don't want to use the setup scripts)
+
+The setup scripts (`setup_and_run.bat`/`.sh`/`.command`) just automate the
+steps below. If you'd rather do it yourself — or the scripts don't work on
+your machine for some reason — here's exactly what to do by hand.
+
+### 1. Install Python
+
+Install **Python 3.12.7** (or any 3.10+ version — 3.12.7 is just what the
+scripts install automatically, and what this project was tested with).
+
+- **Windows**: download from
+  https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe and run
+  it. During install, make sure you check **"Add python.exe to PATH"** on
+  the first screen — this is unchecked by default and is the #1 reason
+  `python` isn't recognized afterward.
+- **macOS**: `brew install python@3.12` (if you have Homebrew), or download
+  the installer from
+  https://www.python.org/ftp/python/3.12.7/python-3.12.7-macos11.pkg
+- **Linux**: `sudo apt-get install python3 python3-venv python3-pip`
+  (Debian/Ubuntu), or the equivalent for your distro (`dnf`, `pacman`,
+  `zypper`, etc.)
+
+Check it worked:
+```
+python --version
+```
+(On macOS/Linux this may be `python3 --version` instead.) You should see
+`Python 3.12.7` or similar.
+
+### 2. Create a virtual environment
+
+A virtual environment ("venv") is just an isolated folder that holds its own
+copy of Python packages, so this project's dependencies don't clash with
+anything else on your system. From inside the project folder (the one with
+`record_gesture.py` in it):
+
+**Windows:**
+```
+python -m venv venv
+```
+
+**macOS/Linux:**
+```
+python3 -m venv venv
+```
+
+This creates a `venv/` folder in the project directory. It only needs to be
+done once.
+
+### 3. Activate the virtual environment
+
+Activating it tells your terminal "use the Python and packages inside
+`venv/`, not the system ones." You need to do this **every time** you open a
+new terminal to work on this project.
+
+**Windows (Command Prompt):**
+```
+venv\Scripts\activate.bat
+```
+**Windows (PowerShell):**
+```
+venv\Scripts\Activate.ps1
+```
+**macOS/Linux:**
+```
+source venv/bin/activate
+```
+
+You'll know it worked because your terminal prompt will show `(venv)` at the
+start of the line.
+
+### 4. Install the required packages
+
+With the venv activated:
+```
+pip install -r requirements.txt
+```
+This reads `requirements.txt` and installs `bleak`, `numpy`, `sounddevice`,
+`pandas`, `scikit-learn`, and `tensorflow` — everything the three scripts
+need.
+
+### 5. Run whichever script you want
+
+Still with the venv activated:
+```
+python record_gesture.py
+python train_gesture_model.py
+python gesture_ui_server.py
+```
+Run only the one you need — you don't have to run all three.
+
+### 6. Next time
+
+You don't need to redo steps 1–4 — just reopen a terminal in the project
+folder, activate the venv again (step 3), and run whichever script you need
+(step 5).
+
+## What each file is
+
+| File | What it does |
+|---|---|
+| `record_gesture.py` | Connects to the ArmBand over Bluetooth, plays "go/stop" beep cues, and saves your filtered EMG + accelerometer data as CSV files for training. Run this to collect your own gesture data. |
+| `train_gesture_model.py` | Reads the recorded CSV data and trains a gesture-classification model from it, saving the result into `gesture_model/`. |
+| `model_architectures.py` | Defines the CNN / LSTM / CNN-LSTM neural network structures used for training. You don't run this directly — the training script imports it. |
+| `gesture_ui_server.py` | Connects to the ArmBand live, runs the trained model in real time, and shows the recognized gesture in a browser-based UI. |
+| `gesture_model/` | The trained model files. The repo already includes a pretrained one so you can try `gesture_ui_server.py` immediately; training your own data overwrites/adds to this. |
+| `training_data/` | Where `record_gesture.py` saves the CSV files (and its `dataset_index.json`) from your recording sessions. |
+| `requirements.txt` | The list of Python packages this project depends on — used by both the setup scripts and the manual `pip install -r requirements.txt` step. |
+| `setup_and_run.bat` / `.sh` / `.command` | One-click setup + menu launcher for Windows / Linux / macOS respectively — automates everything in the "Manual setup" section above. |
 
 ## Windows
 Double-click **`setup_and_run.bat`**.
