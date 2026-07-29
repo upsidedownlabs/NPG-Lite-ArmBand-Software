@@ -10,12 +10,17 @@ CSV per trial — ready to be used as training data for a gesture
 classifier (pinch, flexion, extension, etc.).
 
 Single band, multiple devices: this script still supports more than one
-device (add extra entries to KNOWN_DEVICES below) — in that case every
-device's channels are merged side-by-side, sample-index-aligned (all
-devices are told to start streaming at the same instant), in
-KNOWN_DEVICES role order, and each device's own accel_x/accel_y/accel_z
-columns are appended after all the EMG channels. But the default
-configuration below is a single device, since that's the common case.
+device connected at once — in that case every device's channels are
+merged side-by-side, sample-index-aligned (all devices are told to start
+streaming at the same instant), in address-sorted role order (dev1, dev2,
+...; see resolve_devices() below), and each device's own
+accel_x/accel_y/accel_z columns are appended after all the EMG channels.
+Devices are recognized purely by their advertised name prefix
+(DEVICE_NAME_PREFIX, "NPG-Lite-") — there's no MAC address allow-list to
+maintain, since end users generally don't know their board's MAC address
+in advance. Every board of this type reports the same EMG channel count
+(DEFAULT_CHANNELS_PER_DEVICE), so channel count doesn't need to be looked
+up per-device either.
 
 Accelerometer note: the onboard IMU (LIS3DH) samples at a much lower rate
 (~20 notifications/sec, each internally batching a few samples) than the
@@ -177,33 +182,35 @@ NOTCH_TYPE = 1            # 1 = 48-52Hz (50Hz mains, India/EU), 2 = 58-62Hz (60H
 EMG_TYPE = 4               # fixed: 4 = EMG bandpass in EXGFilter
 
 # ==============================
-# Fixed device identity mapping
+# Device resolution - by NAME PREFIX ONLY, no MAC allow-list.
 # ==============================
-# Pin each physical board to a stable role + channel count by its BLE MAC
-# address. This matters for two reasons:
+# Devices are recognized purely by their advertised name prefix
+# (DEVICE_NAME_PREFIX). There's no MAC-address allow-list to maintain,
+# since end users setting this up generally don't know their board's MAC
+# address ahead of time.
 #
-#   1) BleakScanner.discover() order is NOT stable across runs (it depends
-#      on scan timing / RSSI at that moment), so relying on "[0] = dev1"
-#      from the scan output will silently swap devices between sessions
-#      if you ever run with more than one.
-#   2) It's safer to pin the channel count explicitly per address than to
-#      infer it from the advertised name every time — a name-parsing bug
-#      or a renamed device could silently feed the model the wrong number
-#      of columns.
+# Two things this still needs to get right, now that identity isn't pinned
+# by address:
 #
-# SINGLE BAND: only one device is configured below (3-channel board), so
-# every recording produces one 3-channel EMG + 3-channel accel CSV
-# (6 columns of features total). Fill in YOUR board's address (from the
-# scan output printed at startup) below.
+#   1) Stable role ordering across runs. BleakScanner.discover() order is
+#      NOT stable across runs (it depends on scan timing / RSSI at that
+#      moment), so relying on "[0] = dev1" from the scan output would
+#      silently swap devices between sessions whenever more than one board
+#      is connected. Instead, resolve_devices() sorts discovered devices by
+#      BLE address and assigns dev1, dev2, ... in that order - as long as
+#      the same physical boards are used, they get the same role each time.
 #
-# To go back to using two (or more) boards later, just add more entries
-# here — everything downstream (merge_and_save, train_gesture_model.py,
-# gesture_ui_server2.py) already merges however many devices are listed,
-# so no other code changes are needed.
-KNOWN_DEVICES = {
-    "DC:1E:D5:80:DA:DA": {"role": "dev1", "channels": 3},
-    # "DC:1E:D5:80:DA:CE": {"role": "dev2", "channels": 3},  # 2nd band, disabled
-}
+#   2) Consistent channel count. Every NPG-Lite board of this type reports
+#      the same number of EMG channels, so DEFAULT_CHANNELS_PER_DEVICE below
+#      is used for every prefix-matched device rather than guessing per
+#      device from its advertised name (which has been observed to be
+#      unreliable) or looking it up per address.
+#
+# IMPORTANT: gesture_ui_server.py (used at inference time) must resolve
+# devices with this exact same logic (name-prefix + address-sort) so that
+# the feature-column order used at training time matches the column order
+# used at inference time. Both files already do this.
+DEFAULT_CHANNELS_PER_DEVICE = 3  # EMG channels per NPG-Lite board
 
 
 # ==============================
@@ -444,7 +451,9 @@ def play_stop_cue():
 
 
 def channels_from_name(name: str) -> int:
-    """Infer channel count from advertised device name."""
+    """Kept as a fallback for anything that still wants a name-based guess
+    (e.g. display/debug code); normal device resolution now always uses
+    DEFAULT_CHANNELS_PER_DEVICE instead of parsing the advertised name."""
     if "6CH" in name:
         return 6
     return 3
@@ -456,9 +465,9 @@ class DeviceRecorder:
     def __init__(self, ble_device, out_path, channels=None, role=None):
         self.ble_device = ble_device
         self.name = ble_device.name or "UNKNOWN"
-        # Prefer the explicit, address-pinned channel count (see
-        # KNOWN_DEVICES above) over guessing from the advertised name,
-        # since the name has been observed to be wrong/misleading.
+        # Prefer the explicit channel count passed in from resolve_devices()
+        # (DEFAULT_CHANNELS_PER_DEVICE) over guessing from the advertised
+        # name, since the name has been observed to be wrong/misleading.
         self.channels = channels if channels is not None else channels_from_name(self.name)
         self.role = role or self.name
         self.out_path = out_path
@@ -937,39 +946,27 @@ def sessions_menu(output_root, index):
 
 
 def resolve_devices(found):
-    """Match discovered devices against KNOWN_DEVICES by MAC address so that
-    device identity (role + channel count) is stable across runs, instead
-    of depending on BleakScanner's non-deterministic discovery order.
+    """Resolve every discovered NPG-Lite-prefixed device into a stable
+    (device, role, channels) triple - no MAC allow-list needed.
 
-    Returns a list of (device, role, channels) sorted by role (dev1, dev2,
-    ...). Unrecognized addresses fall back to a name-based guess and get
-    flagged so you can add them to KNOWN_DEVICES.
+    Role assignment: sort discovered devices by BLE address and assign
+    dev1, dev2, ... in that order. BleakScanner.discover() order is NOT
+    stable across runs, so this is what keeps role assignment (and
+    therefore feature-column order) consistent across sessions as long as
+    the same physical boards are used - the actual addresses don't need to
+    be known ahead of time, just their relative sort order, which stays
+    fixed for a given set of boards.
+
+    Channel count: every board uses DEFAULT_CHANNELS_PER_DEVICE, since this
+    hardware doesn't vary channel count per unit.
+
+    Returns a list of (device, role, channels) sorted by role (dev1, dev2, ...).
     """
+    found_sorted = sorted(found, key=lambda d: d.address.upper())
     resolved = []
-    unknown = []
-    for d in found:
-        addr = d.address.upper()
-        info = KNOWN_DEVICES.get(addr)
-        if info is not None:
-            resolved.append((d, info["role"], info["channels"]))
-        else:
-            unknown.append(d)
-
-    if unknown:
-        print(
-            "\n  (warning) The following device(s) are not in KNOWN_DEVICES "
-            "and will use a name-based channel guess, which may be wrong:"
-        )
-        for d in unknown:
-            guessed = channels_from_name(d.name or "")
-            print(f"    {d.name} - {d.address}  (guessed {guessed}ch)")
-            resolved.append((d, d.address, guessed))
-        print(
-            "  Add their addresses to KNOWN_DEVICES at the top of this file "
-            "to fix the role/channel count permanently.\n"
-        )
-
-    resolved.sort(key=lambda t: t[1])  # stable order by role name
+    for i, d in enumerate(found_sorted):
+        role = f"dev{i + 1}"
+        resolved.append((d, role, DEFAULT_CHANNELS_PER_DEVICE))
     return resolved
 
 
@@ -985,7 +982,7 @@ async def record_gesture(gesture_name, resolved_devices, trial_num, subject_dir)
 
     print(f"\nConnecting to {len(recorders)} device(s) for gesture '{gesture_name}' (trial {trial_num})...")
     fixed_order = " -> ".join(r.role for r in recorders)
-    print(f"  Fixed connect order (from KNOWN_DEVICES, independent of scan order): {fixed_order}")
+    print(f"  Connect order (address-sorted, independent of scan order): {fixed_order}")
     # Connect ONE AT A TIME — BlueZ errors out (InProgress) on concurrent Connect() calls
     for r in recorders:
         print(f"  Connecting to {r.role} [{r.name}] ({r.ble_device.address}, {r.channels}ch)...")
@@ -1132,16 +1129,9 @@ async def main():
         print(f"  [{i}] {d.name} - {d.address}")
 
     devices = resolve_devices(found)
-    print("\nResolved device roles (stable across runs):")
+    print("\nResolved device roles (stable across runs, address-sorted):")
     for d, role, channels in devices:
         print(f"  {role}: {d.name} - {d.address} ({channels}ch)")
-
-    if len(devices) != len(KNOWN_DEVICES):
-        print(
-            f"\n(note) Resolved {len(devices)} of {len(KNOWN_DEVICES)} device(s) listed in "
-            f"KNOWN_DEVICES. If that's fewer than expected, make sure every board is "
-            f"powered on and advertising, then re-run."
-        )
 
     # --- Subject identity ---
     # Everything below is scoped to ONE subject's folder (training_data/

@@ -140,24 +140,34 @@ class EXGFilter:
 
 
 # ==============================
-# Fixed device identity mapping - MUST match record_gesture.py / realtime_classify.py
-# Single band by default (one device). Add more entries here (and in
-# record_gesture.py's KNOWN_DEVICES, identically) if you go back to
-# multiple boards - the merge order below already generalizes to N devices.
+# Device resolution - by NAME PREFIX ONLY, no MAC allow-list.
+#
+# End users won't know their board's MAC address ahead of time, so we can't
+# gate on a hardcoded KNOWN_DEVICES dict of addresses. Instead, ANY device
+# that already passed the `DEVICE_NAME_PREFIX` ("NPG-Lite-") filter during
+# scanning is accepted here. Each EMG channel count is fixed per board
+# (DEFAULT_CHANNELS_PER_DEVICE, matches firmware), and roles ("dev1",
+# "dev2", ...) are assigned by sorting on BLE address so that, across runs,
+# the same physical boards land in the same role/column order - this
+# matters because record_gesture.py's trained feature-column order depends
+# on that role order (all EMG channels first in role order, then all accel
+# channels in role order - see merge_and_save()).
+#
+# IMPORTANT: record_gesture.py must resolve devices the exact same way
+# (name-prefix + address-sort, no MAC allow-list) so that the column order
+# used at training time matches the column order used here at inference
+# time. If you still have an old KNOWN_DEVICES-based version of
+# record_gesture.py, update it to match this logic too.
 # ==============================
-KNOWN_DEVICES = {
-    # "DC:1E:D5:80:DA:DA": {"role": "dev1", "channels": 3},
-    "DC:1E:D5:80:DA:CE": {"role": "dev2", "channels": 3},  # 2nd band, disabled
-}
+DEFAULT_CHANNELS_PER_DEVICE = 3  # EMG channels per NPG-Lite board
 
 
 def resolve_all_known_devices(found):
+    found_sorted = sorted(found, key=lambda d: d.address.upper())
     resolved = []
-    for d in found:
-        info = KNOWN_DEVICES.get(d.address.upper())
-        if info is not None:
-            resolved.append((d, info["role"], info["channels"]))
-    resolved.sort(key=lambda t: t[1])
+    for i, d in enumerate(found_sorted):
+        role = f"dev{i + 1}"
+        resolved.append((d, role, DEFAULT_CHANNELS_PER_DEVICE))
     return resolved
 
 
@@ -172,6 +182,7 @@ class SharedState:
         self.stride = stride
         self.classes = classes
         self.threshold = threshold
+        self.sampling_rate = None  # set by main() before the BLE thread starts
 
         self.sample_buffer = deque(maxlen=window_size)
         self.new_since_last_window = 0
@@ -197,9 +208,9 @@ class SharedState:
 
 
 # ==============================
-# BLE handling (own thread, own asyncio loop) - unchanged from realtime_classify.py
+# BLE handling (own thread, own asyncio loop)
 # ==============================
-def ble_thread_main(state, per_device_filters):
+def ble_thread_main(state):
     async def run():
         state.status_msg = f"scanning for {DEVICE_NAME_PREFIX}*..."
         devices = await BleakScanner.discover(timeout=6)
@@ -211,7 +222,9 @@ def ble_thread_main(state, per_device_filters):
 
         resolved = resolve_all_known_devices(found)
         if not resolved:
-            state.status_msg = "ERROR: no recognized devices (check KNOWN_DEVICES addresses)"
+            # Shouldn't happen in practice (resolve_all_known_devices accepts
+            # everything in `found`), kept as a defensive guard.
+            state.status_msg = "ERROR: could not resolve any discovered devices"
             state.running = False
             return
 
@@ -226,11 +239,29 @@ def ble_thread_main(state, per_device_filters):
             state.status_msg = (f"ERROR: connected devices {roles_found} provide "
                                  f"{total_emg_channels}ch EMG + {3 * len(resolved)}ch accel = "
                                  f"{total_channels}ch total but model expects "
-                                 f"{state.num_channels}ch")
+                                 f"{state.num_channels}ch (check how many NPG-Lite boards "
+                                 f"are powered on / in range)")
             state.running = False
             return
 
         role_order = [role for _, role, _ in resolved]
+
+        # Build the notch/EMG filter chains now that we know which roles and
+        # channel counts actually showed up on this scan (previously this was
+        # pre-built in main() from the static KNOWN_DEVICES dict; now it's
+        # dynamic since devices are resolved purely by name prefix).
+        per_device_filters = {}
+        for _, role, channels in resolved:
+            notch_filters, emg_filters = [], []
+            for _ in range(channels):
+                nf = NotchFilter()
+                nf.set_sampling_rate(state.sampling_rate)
+                notch_filters.append(nf)
+                ef = EXGFilter()
+                ef.set_bits(ADC_BITS, state.sampling_rate)
+                emg_filters.append(ef)
+            per_device_filters[role] = {"notch": notch_filters, "emg": emg_filters}
+
         device_queues = {role: deque() for role in role_order}
         queue_lock = threading.Lock()
 
@@ -713,22 +744,9 @@ def main():
     model = keras.models.load_model(os.path.join(args.model_dir, "model.keras"))
 
     state = SharedState(num_channels, window_size, stride, classes, args.confidence_threshold)
+    state.sampling_rate = meta["sampling_rate"]
 
-    per_device_filters = {}
-    for addr, info in KNOWN_DEVICES.items():
-        role = info["role"]
-        channels = info["channels"]
-        notch_filters, emg_filters = [], []
-        for _ in range(channels):
-            nf = NotchFilter()
-            nf.set_sampling_rate(meta["sampling_rate"])
-            notch_filters.append(nf)
-            ef = EXGFilter()
-            ef.set_bits(ADC_BITS, meta["sampling_rate"])
-            emg_filters.append(ef)
-        per_device_filters[role] = {"notch": notch_filters, "emg": emg_filters}
-
-    threading.Thread(target=ble_thread_main, args=(state, per_device_filters), daemon=True).start()
+    threading.Thread(target=ble_thread_main, args=(state,), daemon=True).start()
     threading.Thread(target=model_thread_main, args=(state, model, mean, std, args.confidence_threshold),
                       daemon=True).start()
 
