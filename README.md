@@ -405,11 +405,11 @@ As soon as the board connects, the controller walks you through a 3-step
 calibration so it knows what *your* up, down, and rest positions are:
 
 ```
-📐 CALIBRATION SEQUENCE STARTING
+CALIBRATION SEQUENCE STARTING
 
-  1️⃣ UP position
-  2️⃣ DOWN position
-  3️⃣ REST position
+  1 UP position
+  2 DOWN position
+  3 REST position
 ```
 
 Each step gives you a **2-second countdown**, then records ~50 accelerometer
@@ -427,7 +427,7 @@ controller thinks you're permanently in the UP zone and pinch will fire UP the
 whole time. It does warn you about this:
 
 ```
-⚠️  arm has read UP for 8s+ without returning to REST ... recalibrate.
+  arm has read UP for 8s+ without returning to REST ... recalibrate.
 ```
 
 If you see that, press `Ctrl+C` and start option 4 again.
@@ -440,7 +440,7 @@ or the up/down direction feels inverted.
 Once calibrated you get a single continuously-updating line:
 
 ```
-PINCH     | raw:pinc | p=0.87/0.66 | 12ms | acc:   -4210 | pos:UP    | v:  +3100 | key:  61ms | 🤏 PINCH @ UP → FIRE
+PINCH     | raw:pinc | p=0.87/0.66 | 12ms | acc:   -4210 | pos:UP    | v:  +3100 | key:  61ms |  PINCH @ UP → FIRE
 ```
 
 - `PINCH` — the accepted gesture (after vote filtering)
@@ -450,8 +450,8 @@ PINCH     | raw:pinc | p=0.87/0.66 | 12ms | acc:   -4210 | pos:UP    | v:  +3100
 - `acc:` / `pos:` / `v:` — accelerometer value, which zone you're in, distance
   from calibrated rest
 - `key:` — how long the last key press took
-- the tail tells you what it's doing right now (`⚪ Idle`, `🤏 PINCH @ REST (no
-  button)`, `⏱️ Debounce`, `⬇️ HOLDING LEFT`, …)
+- the tail tells you what it's doing right now (` Idle`, ` PINCH @ REST (no
+  button)`, ` Debounce`, ` HOLDING LEFT`, …)
 
 In tap mode there's a **300 ms debounce** between presses, and the same key
 can't repeat within **500 ms** unless you return to rest first.
