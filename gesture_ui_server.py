@@ -36,7 +36,7 @@ from tensorflow import keras
 DATA_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 CONTROL_CHAR_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
 IMU_CHAR_UUID = "5a153fa9-7be0-400c-8ef8-d84502b31c4d"  # onboard accel, notify-only
-DEVICE_NAME_PREFIX = "NPG-Lite-"
+DEVICE_NAME_PREFIX = "NPG-Lite-Band"
 SAMPLES_PER_PACKET = 20  # BLOCK_COUNT in firmware
 IMU_SAMPLE_LEN = 7       # firmware IMU_SAMPLE_SIZE: 1 counter byte + 3x int16 (ax,ay,az)
 
@@ -171,6 +171,29 @@ def resolve_all_known_devices(found):
     return resolved
 
 
+def select_device(found):
+    """Pick exactly ONE device. If several NPG-Lite boards are in range,
+    list them as 1..N with their full advertised name + BLE address and ask
+    the user which one to use. Address-sorted first so menu order is stable
+    across runs."""
+    found_sorted = sorted(found, key=lambda d: d.address.upper())
+    if len(found_sorted) == 1:
+        d = found_sorted[0]
+        print(f"Found 1 device: {d.name} ({d.address}) - using it.")
+        return d
+
+    print(f"\nFound {len(found_sorted)} NPG-Lite devices:")
+    for i, d in enumerate(found_sorted, 1):
+        print(f"  {i}) {d.name}  ({d.address})")
+    while True:
+        choice = input(f"Select device to use [1-{len(found_sorted)}]: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(found_sorted):
+            d = found_sorted[int(choice) - 1]
+            print(f"Using: {d.name} ({d.address})\n")
+            return d
+        print("Invalid choice - enter one of the numbers shown above.")
+
+
 # ==============================
 # Shared state between BLE thread, model thread, and the HTTP server thread
 # ==============================
@@ -210,17 +233,12 @@ class SharedState:
 # ==============================
 # BLE handling (own thread, own asyncio loop)
 # ==============================
-def ble_thread_main(state):
+def ble_thread_main(state, selected_devices):
+    """selected_devices: list of BLEDevice objects already discovered and
+    chosen in main() (one device by default; every device in range with
+    --all_devices)."""
     async def run():
-        state.status_msg = f"scanning for {DEVICE_NAME_PREFIX}*..."
-        devices = await BleakScanner.discover(timeout=6)
-        found = [d for d in devices if d.name and d.name.startswith(DEVICE_NAME_PREFIX)]
-        if not found:
-            state.status_msg = "ERROR: no NPG-Lite device found"
-            state.running = False
-            return
-
-        resolved = resolve_all_known_devices(found)
+        resolved = resolve_all_known_devices(selected_devices)
         if not resolved:
             # Shouldn't happen in practice (resolve_all_known_devices accepts
             # everything in `found`), kept as a defensive guard.
@@ -722,6 +740,9 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no_browser", action="store_true",
                      help="don't auto-open a browser tab on startup")
+    ap.add_argument("--all_devices", action="store_true",
+                     help="connect to EVERY NPG-Lite board in range (old multi-ArmBand "
+                          "behavior) instead of prompting to pick one")
     args = ap.parse_args()
 
     with open(os.path.join(args.model_dir, "meta.json")) as f:
@@ -746,7 +767,23 @@ def main():
     state = SharedState(num_channels, window_size, stride, classes, args.confidence_threshold)
     state.sampling_rate = meta["sampling_rate"]
 
-    threading.Thread(target=ble_thread_main, args=(state,), daemon=True).start()
+    # Scan + pick the device BEFORE the server/browser start, so the
+    # selection prompt appears cleanly in the terminal.
+    print(f"Scanning for {DEVICE_NAME_PREFIX}* devices (6s)...")
+    discovered = asyncio.run(BleakScanner.discover(timeout=6))
+    found = [d for d in discovered if d.name and d.name.startswith(DEVICE_NAME_PREFIX)]
+    if not found:
+        print("ERROR: no NPG-Lite device found. Power on the ArmBand and re-run.")
+        return
+    if args.all_devices:
+        selected_devices = sorted(found, key=lambda d: d.address.upper())
+        print("--all_devices: connecting to every board in range:")
+        for d in selected_devices:
+            print(f"  - {d.name}  ({d.address})")
+    else:
+        selected_devices = [select_device(found)]
+
+    threading.Thread(target=ble_thread_main, args=(state, selected_devices), daemon=True).start()
     threading.Thread(target=model_thread_main, args=(state, model, mean, std, args.confidence_threshold),
                       daemon=True).start()
 

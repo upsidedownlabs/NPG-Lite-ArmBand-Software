@@ -96,35 +96,109 @@ echo ================================================
 echo   Gesture ML Toolkit
 echo ================================================
 echo.
+echo   Turn ON your NPG Lite board before picking 1, 3 or 4.
+echo.
 echo   1. Record gesture data     (record_gesture.py)
 echo   2. Train gesture model     (train_gesture_model.py)
 echo   3. Run gesture UI server   (gesture_ui_server.py)
-echo   4. Exit
+echo   4. Run gesture controller  (gesture_controller.py - tap / hold)
+echo   5. Exit
 echo.
-set /p CHOICE="Select an option [1-4]: "
+set /p CHOICE="Type a number [1-5] and press Enter: "
 
-if "%CHOICE%"=="1" (
-    "%VENV_PY%" record_gesture.py
-    echo.
-    pause
-    goto menu
-)
-if "%CHOICE%"=="2" (
-    "%VENV_PY%" train_gesture_model.py
-    echo.
-    pause
-    goto menu
-)
-if "%CHOICE%"=="3" (
-    "%VENV_PY%" gesture_ui_server.py
-    echo.
-    pause
-    goto menu
-)
-if "%CHOICE%"=="4" (
-    exit /b 0
-)
+if "%CHOICE%"=="1" goto run_record
+if "%CHOICE%"=="2" goto run_train
+if "%CHOICE%"=="3" goto run_ui
+if "%CHOICE%"=="4" goto controller_menu
+if "%CHOICE%"=="5" exit /b 0
 
-echo Invalid choice, try again.
+echo Invalid choice - type 1, 2, 3, 4 or 5 and press Enter.
 pause
 goto menu
+
+:run_record
+"%VENV_PY%" record_gesture.py
+echo.
+pause
+goto menu
+
+:run_train
+"%VENV_PY%" train_gesture_model.py
+echo.
+pause
+goto menu
+
+:run_ui
+"%VENV_PY%" gesture_ui_server.py
+echo.
+pause
+goto menu
+
+REM ---- Gesture controller submenu: tap vs hold ----
+:controller_menu
+cls
+echo ================================================
+echo   Gesture Controller - keyboard control
+echo ================================================
+echo.
+echo   Make sure your NPG Lite is TURNED ON and the ArmBand is on
+echo   your forearm before you start. Calibration runs automatically.
+echo.
+echo   Gestures:  flexion -^> LEFT       extension -^> RIGHT
+echo              arm UP   + pinch -^> UP
+echo              arm DOWN + pinch -^> DOWN
+echo.
+echo   1. TAP mode   - one gesture = one key press
+echo                   (menus, browsing, turn-based games)
+echo   2. HOLD mode  - key stays held down while you hold the gesture
+echo                   (driving/racing games, continuous steering)
+echo   3. TAP mode, DRY RUN - shows what it detects, sends NO key
+echo                   presses. Use this first to test safely.
+echo   4. Back to main menu
+echo.
+set /p CMODE="Type a number [1-4] and press Enter: "
+
+if "%CMODE%"=="1" goto ctrl_tap
+if "%CMODE%"=="2" goto ctrl_hold
+if "%CMODE%"=="3" goto ctrl_dry
+if "%CMODE%"=="4" goto menu
+
+echo Invalid choice - type 1, 2, 3 or 4 and press Enter.
+pause
+goto controller_menu
+
+:ctrl_tap
+call :ensure_ctrl_deps
+"%VENV_PY%" gesture_controller.py --press_mode tap
+echo.
+pause
+goto controller_menu
+
+:ctrl_hold
+call :ensure_ctrl_deps
+"%VENV_PY%" gesture_controller.py --press_mode hold
+echo.
+pause
+goto controller_menu
+
+:ctrl_dry
+call :ensure_ctrl_deps
+"%VENV_PY%" gesture_controller.py --press_mode tap --dry_run
+echo.
+pause
+goto controller_menu
+
+REM ---- gesture_controller.py needs pynput to press keys on Windows ----
+:ensure_ctrl_deps
+"%VENV_PY%" -c "import pynput" >nul 2>&1
+if errorlevel 1 (
+    echo Installing keyboard-control package ^(pynput^) - one time only...
+    "%VENV_PY%" -m pip install pynput
+    if errorlevel 1 (
+        echo.
+        echo WARNING: pynput could not be installed, so key presses will not work.
+        echo See the README troubleshooting section.
+        pause
+    )
+)
+goto :eof

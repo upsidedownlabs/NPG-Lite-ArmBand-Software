@@ -1,0 +1,25 @@
+{
+  "mode": "continuous",
+  "reps": [
+    {
+      "go_time": 1785315733.757694,
+      "stop_time": null,
+      "hold_sec": null
+    }
+  ],
+  "rep_sample_indices": [
+    {
+      "go": 1240,
+      "stop": null
+    }
+  ],
+  "reaction_delay_sec": 0.3,
+  "gesture_hold_range_sec": null,
+  "segments": [
+    [
+      1390,
+      31260
+    ]
+  ],
+  "total_samples": 31260
+}

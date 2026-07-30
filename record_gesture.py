@@ -141,7 +141,8 @@ from bleak import BleakScanner, BleakClient
 DATA_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 CONTROL_CHAR_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
 IMU_CHAR_UUID = "5a153fa9-7be0-400c-8ef8-d84502b31c4d"  # onboard accel, notify-only
-DEVICE_NAME_PREFIX = "NPG-Lite-"
+DEVICE_NAME_PREFIX = "NPG-Lite-Band"
+USE_ALL_DEVICES = False  # overridden by --all_devices in __main__
 
 SAMPLES_PER_PACKET = 20  # BLOCK_COUNT in firmware
 IMU_SAMPLE_LEN = 7       # firmware IMU_SAMPLE_SIZE: 1 counter byte + 3x int16 (ax,ay,az)
@@ -769,6 +770,33 @@ async def discover_devices(timeout=6):
     return found
 
 
+def select_device(found):
+    """Pick exactly ONE device to record from.
+
+    If a single NPG-Lite board is in range it's used automatically. If
+    several are in range, list them as 1..N with their full advertised name
+    + BLE address and ask the user which one to use. Devices are
+    address-sorted first so the menu order is stable across runs
+    (BleakScanner.discover() order is not).
+    """
+    found_sorted = sorted(found, key=lambda d: d.address.upper())
+    if len(found_sorted) == 1:
+        d = found_sorted[0]
+        print(f"Found 1 device: {d.name} ({d.address}) - using it.")
+        return d
+
+    print(f"\nFound {len(found_sorted)} NPG-Lite devices:")
+    for i, d in enumerate(found_sorted, 1):
+        print(f"  {i}) {d.name}  ({d.address})")
+    while True:
+        choice = input(f"Select device to use [1-{len(found_sorted)}]: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(found_sorted):
+            d = found_sorted[int(choice) - 1]
+            print(f"Using: {d.name} ({d.address})\n")
+            return d
+        print("Invalid choice - enter one of the numbers shown above.")
+
+
 def next_trial_number(subject_dir, gesture_name):
     """Look at what's already saved on disk for this subject+gesture and
     return the next trial number to use, so re-running the script (a new
@@ -1124,11 +1152,19 @@ async def record_gesture(gesture_name, resolved_devices, trial_num, subject_dir)
 
 async def main():
     found = await discover_devices()
-    print("\nFound devices:")
-    for i, d in enumerate(found):
-        print(f"  [{i}] {d.name} - {d.address}")
 
-    devices = resolve_devices(found)
+    if USE_ALL_DEVICES:
+        # Old multi-ArmBand behavior: connect to every board in range.
+        print("\nFound devices (--all_devices: connecting to every one):")
+        for i, d in enumerate(found):
+            print(f"  [{i}] {d.name} - {d.address}")
+        selected = found
+    else:
+        # Default: connect to exactly ONE board. If several are in range,
+        # select_device() shows a 1..N menu (full name + address).
+        selected = [select_device(found)]
+
+    devices = resolve_devices(selected)
     print("\nResolved device roles (stable across runs, address-sorted):")
     for d, role, channels in devices:
         print(f"  {role}: {d.name} - {d.address} ({channels}ch)")
@@ -1240,6 +1276,9 @@ def parse_args():
                           f"(default {REACTION_DELAY_SEC})")
     ap.add_argument("--max_record_seconds", type=int, default=MAX_RECORD_SECONDS,
                      help=f"hard cap per trial in seconds (default {MAX_RECORD_SECONDS})")
+    ap.add_argument("--all_devices", action="store_true",
+                     help="connect to EVERY NPG-Lite board in range (old multi-ArmBand "
+                          "behavior) instead of prompting to pick one")
     return ap.parse_args()
 
 
@@ -1260,6 +1299,7 @@ if __name__ == "__main__":
         sys.exit(1)
     REACTION_DELAY_SEC = args.reaction_delay
     MAX_RECORD_SECONDS = args.max_record_seconds
+    USE_ALL_DEVICES = args.all_devices
 
     try:
         asyncio.run(main())
