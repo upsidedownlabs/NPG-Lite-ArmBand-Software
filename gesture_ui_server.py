@@ -362,13 +362,15 @@ def ble_thread_main(state, selected_devices):
                     with queue_lock:
                         device_queues[role].append(sample)
             return handle_notify
-
+            
         clients = []
         client_roles = {}
         try:
             for dev, role, channels in resolved:
                 state.status_msg = f"connecting to {role} ({dev.address})..."
                 client = BleakClient(dev.address)
+                clients.append(client)
+                client_roles[client] = role
                 try:
                     await asyncio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT_S)
                 except asyncio.TimeoutError:
@@ -378,8 +380,6 @@ def ble_thread_main(state, selected_devices):
                 except Exception as e:
                     fail(f"could not connect to {role} ({dev.address}): {e}")
                     return
-                clients.append(client)
-                client_roles[client] = role
                 filters = per_device_filters[role]
                 try:
                     await client.start_notify(

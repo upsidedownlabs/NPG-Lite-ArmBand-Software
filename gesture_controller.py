@@ -9,7 +9,7 @@ detects gestures and maps them to button presses:
 - Pinch + Moving Down -> Down button press (requires significant movement)
 
 Features:
-- 800ms debounce time between button presses
+- 300ms debounce time between button presses
 - 3-step calibration (UP -> DOWN -> REST) with 2-second countdown
 - Strict movement detection
 
@@ -549,9 +549,9 @@ class ControllerState:
         self.current_accel_y = 0.0
         self.accel_lock = threading.Lock()
         
-        # Gesture combination tracking with 800ms debounce
+        # Gesture combination tracking with 300ms debounce
         self.last_gesture_time = 0
-        self.debounce_time_ms = 300  # 800ms debounce
+        self.debounce_time_ms = 300  # 300ms debounce
         self.last_button_pressed = None
         
         # Button press callback
