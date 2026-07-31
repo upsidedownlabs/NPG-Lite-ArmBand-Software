@@ -32,19 +32,6 @@ EMG signal. Values are raw signed 16-bit LIS3DH counts, not converted to
 g's — that's fine for a classifier since it only cares about relative
 scale (and both training and real-time inference use the same raw units).
 
-Filter coefficients are ported directly from the TypeScript Notch / EXGFilter
-classes (Upside Down Labs Chords filters).
-
-IMPORTANT — sampling rate mismatch:
-  The firmware samples at SAMP_RATE = 1000 Hz per channel, but the ported
-  filter coefficients only exist for 250 Hz and 500 Hz (that's what scipy
-  generated them for). This script defaults to SAMPLING_RATE = 500 below.
-  If your firmware is actually streaming at 1000 Hz, either:
-    (a) change firmware SAMP_RATE to 500.0 to match, or
-    (b) generate new 1000 Hz coefficients with scipy.signal.butter/iirnotch
-        and add a 1000 Hz branch to both filter classes.
-  Using mismatched coefficients will filter the wrong frequencies.
-
 Beep cue (repeated go/stop signal):
   For active gestures (anything other than 'rest'), one recording (up to
   MAX_RECORD_SECONDS) contains MANY short reps, not one long hold: streaming
