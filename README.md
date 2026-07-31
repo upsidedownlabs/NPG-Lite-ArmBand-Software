@@ -4,7 +4,7 @@ Record EMG gestures from an NPG Lite ArmBand, train a model on them, and use
 your arm to control a browser dashboard or your keyboard.
 
 **Never used a terminal before? That's fine.** This README assumes zero prior
-experience. Follow it top to bottom and don't skip the hardware section —
+experience. Follow it top to bottom and don't skip the hardware section-
 most problems people hit are the board being off, or the band being in the
 wrong place, not the software.
 
@@ -18,10 +18,10 @@ wrong place, not the software.
 4. [Where to wear the ArmBand](#4-where-to-wear-the-armband)
 5. [Run the setup script](#5-run-the-setup-script)
 6. [How the menu works](#6-how-the-menu-works)
-7. [Option 1 — Record gesture data](#option-1--record-gesture-data)
-8. [Option 2 — Train gesture model](#option-2--train-gesture-model)
-9. [Option 3 — Run gesture UI server](#option-3--run-gesture-ui-server)
-10. [Option 4 — Run gesture controller (tap / hold)](#option-4--run-gesture-controller-tap--hold)
+7. [Option 1- Record gesture data](#option-1--record-gesture-data)
+8. [Option 2- Train gesture model](#option-2--train-gesture-model)
+9. [Option 3- Run gesture UI server](#option-3--run-gesture-ui-server)
+10. [Option 4- Run gesture controller (tap / hold)](#option-4--run-gesture-controller-tap--hold)
 11. [The gestures](#the-gestures)
 12. [Advanced: tuning flags](#advanced-tuning-flags)
 13. [Troubleshooting](#troubleshooting)
@@ -51,13 +51,13 @@ wrong place, not the software.
   way. If you already paired it, remove/forget it.
 - **Only one program can be connected to the board at a time.** If the Chords
   web app, a phone app, or another one of these scripts is connected, close it
-  first — otherwise the new one will scan forever and find nothing.
+  first- otherwise the new one will scan forever and find nothing.
 
 ---
 
 ## 2. Get the project onto your computer
 
-Don't download the files one by one — get the **whole repo** so the scripts
+Don't download the files one by one- get the **whole repo** so the scripts
 and the setup files all land in the same folder.
 
 - **Clone it:**
@@ -78,7 +78,7 @@ gesture_model/          (a pretrained model, ready to use)
 ```
 
 **Windows users:** move this folder somewhere short and simple like
-`C:\Dev\NPG-Lite` — **not** Desktop, **not** Downloads. Windows security
+`C:\Dev\NPG-Lite`- **not** Desktop, **not** Downloads. Windows security
 policies and path-length limits cause real, confusing failures from those two
 folders (both are covered in [Troubleshooting](#troubleshooting)).
 
@@ -102,11 +102,11 @@ Before you pick menu option **1**, **3**, or **4**:
 2. **Confirm it's advertising.** The board advertises itself over Bluetooth as
    a device whose name starts with **`NPG-Lite-Band`**. If the firmware is
    running, it starts advertising within a second or two of power-on.
-3. **Keep it close** — same room, within a couple of metres, no metal or a
+3. **Keep it close**- same room, within a couple of metres, no metal or a
    body between the board and the computer for the first connection.
 4. **Wait for the scan.** When a script starts it prints something like
    `Scanning for NPG-Lite devices...` and takes a few seconds. Don't press
-   anything — let it finish.
+   anything- let it finish.
 5. **If more than one board is found**, the script lists them and asks you to
    pick one:
    ```
@@ -117,7 +117,7 @@ Before you pick menu option **1**, **3**, or **4**:
    ```
    Type `1` (or `2`) and **press Enter**.
 
-**Option 2 (training) is the only option that does NOT need the board** — it
+**Option 2 (training) is the only option that does NOT need the board**- it
 just reads files off your disk, so the board can be off.
 
 **When you're done**, press `Ctrl+C` in the terminal window to stop the
@@ -131,7 +131,7 @@ script, then power the board off to save battery.
 ![ArmBand placement on forearm](images/armband_placement.webp)
 
 - Place the ArmBand on your **forearm**, **electrodes facing your skin**.
-- Position it over the **muscle belly** — roughly the **upper third of the
+- Position it over the **muscle belly**- roughly the **upper third of the
   forearm, just below the elbow**. That's where pinch / flexion / extension
   activity is strongest.
 - **Snug, not tight.** If it slides around, the signal jumps. If it cuts off
@@ -150,7 +150,7 @@ script, then power the board off to save battery.
 
 The setup script does everything: installs Python if missing, creates a local
 `venv` folder, installs the required packages into it, then shows you a menu.
-It's **safe to re-run any time** — it skips whatever is already done.
+It's **safe to re-run any time**- it skips whatever is already done.
 
 The very first run downloads TensorFlow and can take **5–15 minutes**. Later
 runs start in seconds.
@@ -181,7 +181,7 @@ require **right-click → Open** instead of a double-click (to get past the
   python.org installer.
 - macOS will pop up permission prompts the first time: **Bluetooth** (needed
   for all BLE options) and, for option 4, **Accessibility** (needed to press
-  keys). Allow both — see [Troubleshooting](#troubleshooting) if you miss the
+  keys). Allow both- see [Troubleshooting](#troubleshooting) if you miss the
   prompt.
 
 ### Linux
@@ -201,7 +201,7 @@ Then run it from a terminal:
 - If Python is missing it installs it with your distro's package manager
   (`apt`, `dnf`, `pacman`, or `zypper`) and will ask for your `sudo` password.
 - If you see `permission denied: ./setup_and_run.sh`, the `chmod +x` step was
-  skipped — run it once and it'll work from then on.
+  skipped- run it once and it'll work from then on.
 
 ---
 
@@ -225,22 +225,22 @@ Once setup finishes you'll see this:
 Type a number [1-5] and press Enter:
 ```
 
-**How to choose an option — read this if you're new to terminals:**
+**How to choose an option- read this if you're new to terminals:**
 
-- **Type just the number** (`1`, `2`, `3`, `4`, or `5`) — not the words next
+- **Type just the number** (`1`, `2`, `3`, `4`, or `5`)- not the words next
   to it.
 - **Then press the Enter / Return key.** Typing the number alone does nothing;
   the terminal waits for Enter before it acts. This is true for **every**
-  prompt in every script — device selection, subject name, yes/no questions,
+  prompt in every script- device selection, subject name, yes/no questions,
   all of them.
 - **Clicking the menu text does nothing.** A terminal only reads what you type.
 - If you typo, press **Backspace** before Enter. If you already pressed Enter
   and it says `Invalid choice`, just type the right number and press Enter
-  again — nothing is broken.
+  again- nothing is broken.
 - **When a script finishes**, you'll see `Press Enter to continue...`. Press
   Enter and you're back at this menu.
 - **To stop a running script early**, click the terminal window and press
-  **`Ctrl+C`** (`Control+C` on macOS too — not `Cmd+C`).
+  **`Ctrl+C`** (`Control+C` on macOS too- not `Cmd+C`).
 - **To quit completely**, choose **5** and press Enter, or just close the
   window.
 
@@ -253,7 +253,7 @@ Type a number [1-5] and press Enter:
 
 ---
 
-## Option 1 — Record gesture data
+## Option 1- Record gesture data
 
 Records your own gesture trials to CSV files, so you can train a model on
 **your** arm instead of someone else's.
@@ -264,28 +264,28 @@ Records your own gesture trials to CSV files, so you can train a model on
 
 1. It scans for the board and connects. If several are found, pick a number
    and press Enter.
-2. **`Enter subject name:`** — type a name for the person being recorded (e.g.
+2. **`Enter subject name:`**- type a name for the person being recorded (e.g.
    `krishnanshu`) and press Enter. This becomes a folder name, so it's
    lowercased and stripped of spaces/symbols automatically. Use the **same
    name** every session so all your data stays together.
-3. **`Record 'rest' baseline trials now? [Y/n]:`** — press Enter (which means
+3. **`Record 'rest' baseline trials now? [Y/n]:`**- press Enter (which means
    yes) the first time. "Rest" teaches the model what *doing nothing* looks
    like; without it, the model is forced to guess an active gesture even when
-   your arm is idle. It then asks how many rest trials — press Enter for the
+   your arm is idle. It then asks how many rest trials- press Enter for the
    default of 3.
-4. **`Enter gesture name:`** — type `pinch`, `flexion`, or `extension` (one at
+4. **`Enter gesture name:`**- type `pinch`, `flexion`, or `extension` (one at
    a time) and press Enter. Also accepted here:
-   - `sessions` — review your recordings and toggle which ones get used for
+   - `sessions`- review your recordings and toggle which ones get used for
      training
-   - `q` — quit back to the menu
+   - `q`- quit back to the menu
 5. **The beep cue.** One recording contains **many short reps**, not one long
    hold. For each rep:
-   - **one high beep = GO** — start the gesture now
+   - **one high beep = GO**- start the gesture now
    - **hold it** for a *random* 1.5–5 seconds (random on purpose, so you can't
      pre-time the release and start counting instead of listening)
-   - **two low beeps = STOP** — relax
+   - **two low beeps = STOP**- relax
    - a few seconds of relax, then the next GO beep
-   You never have to guess how long to hold — the stop beep tells you. A trial
+   You never have to guess how long to hold- the stop beep tells you. A trial
    auto-stops after 60 seconds.
 6. Only the clean window between GO and STOP is kept (the first 0.3 s after
    GO is discarded as reaction time). Everything else is thrown away, so a
@@ -298,18 +298,18 @@ Records your own gesture trials to CSV files, so you can train a model on
 - Record **all three gestures plus rest**, in roughly equal amounts.
 - **3–5 trials per gesture** is a reasonable starting point. More is better.
 - Don't move your whole arm around during EMG-only gestures (flexion,
-  extension) — that adds accelerometer noise.
+  extension)- that adds accelerometer noise.
 
 Everything is saved under `training_data/<subject>/<gesture>/`, plus a
 `training_data/dataset_index.json` that tracks every session.
 
 ---
 
-## Option 2 — Train gesture model
+## Option 2- Train gesture model
 
 Reads the CSVs you recorded and trains a model from them.
 
-**The board does NOT need to be on for this** — it only reads files.
+**The board does NOT need to be on for this**- it only reads files.
 
 - No questions to answer; it just runs.
 - It slices your recordings into 0.5-second windows, normalises them, trains a
@@ -330,11 +330,11 @@ gesture and train again.
 
 ---
 
-## Option 3 — Run gesture UI server
+## Option 3- Run gesture UI server
 
 A browser dashboard showing an animated hand that follows your live gesture,
 with a confidence bar and per-class probability bars. **This does not press any
-keys** — it's the safest way to check that everything works.
+keys**- it's the safest way to check that everything works.
 
 **Board must be ON.**
 
@@ -350,7 +350,7 @@ Nothing is installed for this beyond the normal requirements.
 
 ---
 
-## Option 4 — Run gesture controller (tap / hold)
+## Option 4- Run gesture controller (tap / hold)
 
 Turns your gestures into **real arrow-key presses**, so you can control games,
 presentations, video playback, or anything else that reads the keyboard.
@@ -382,7 +382,7 @@ Same rule as before: **type the number, press Enter.**
 | Mode | What it does | Good for |
 |---|---|---|
 | **TAP** | One gesture = **one** keystroke. Held ~60 ms, then released. You must return to rest before the same key can fire again. | Menus, slideshows, browsing, page navigation, turn-based games, anything where one action per gesture is right. |
-| **HOLD** | The key stays **physically down** for as long as you hold the gesture, and lifts when you relax. | Driving/racing games and anything reading key *state* every frame. A 60 ms tap gives a racing game a single frame of steering — useless. Hold mode is what makes steering actually work. |
+| **HOLD** | The key stays **physically down** for as long as you hold the gesture, and lifts when you relax. | Driving/racing games and anything reading key *state* every frame. A 60 ms tap gives a racing game a single frame of steering- useless. Hold mode is what makes steering actually work. |
 | **DRY RUN** | Full detection, on-screen readout, **no keystrokes sent at all**. | **Start here.** Confirms detection works without stray key presses landing in whatever window has focus. |
 
 ### The gesture → key mapping
@@ -397,7 +397,7 @@ Same rule as before: **type the number, press Enter.**
 
 Up/Down need **two things at once**: your arm in the up or down *position*
 (read from the accelerometer) **and** a pinch as the trigger. A pinch with
-your arm at rest fires nothing — that's what stops accidental presses.
+your arm at rest fires nothing- that's what stops accidental presses.
 
 ### Calibration runs automatically
 
@@ -415,13 +415,13 @@ CALIBRATION SEQUENCE STARTING
 Each step gives you a **2-second countdown**, then records ~50 accelerometer
 samples with a progress bar. Just do what it says:
 
-1. **UP** — raise your hand above neutral and **hold still** until the bar
+1. **UP**- raise your hand above neutral and **hold still** until the bar
    fills
-2. **DOWN** — lower your hand below neutral, hold still
-3. **REST** — let your arm sit **exactly how you'll actually hold it** while
+2. **DOWN**- lower your hand below neutral, hold still
+3. **REST**- let your arm sit **exactly how you'll actually hold it** while
    using this
 
-That last one matters most. Calibrate "rest" in your real playing posture — if
+That last one matters most. Calibrate "rest" in your real playing posture- if
 you calibrate rest with your arm on the desk and then lift it to play, the
 controller thinks you're permanently in the UP zone and pinch will fire UP the
 whole time. It does warn you about this:
@@ -443,13 +443,13 @@ Once calibrated you get a single continuously-updating line:
 PINCH     | raw:pinc | p=0.87/0.66 | 12ms | acc:   -4210 | pos:UP    | v:  +3100 | key:  61ms |  PINCH @ UP → FIRE
 ```
 
-- `PINCH` — the accepted gesture (after vote filtering)
-- `raw:` — the raw single-window prediction before filtering
-- `p=0.87/0.66` — confidence vs. the threshold it had to beat
-- `12ms` — model inference time
-- `acc:` / `pos:` / `v:` — accelerometer value, which zone you're in, distance
+- `PINCH`- the accepted gesture (after vote filtering)
+- `raw:`- the raw single-window prediction before filtering
+- `p=0.87/0.66`- confidence vs. the threshold it had to beat
+- `12ms`- model inference time
+- `acc:` / `pos:` / `v:`- accelerometer value, which zone you're in, distance
   from calibrated rest
-- `key:` — how long the last key press took
+- `key:`- how long the last key press took
 - the tail tells you what it's doing right now (` Idle`, ` PINCH @ REST (no
   button)`, ` Debounce`, ` HOLDING LEFT`, …)
 
@@ -461,7 +461,7 @@ can't repeat within **500 ms** unless you return to rest first.
 1. Run **dry run (3)** first. Confirm the gestures you want are detected
    cleanly.
 2. `Ctrl+C`, then start **tap (1)** or **hold (2)**.
-3. **Click on the game window** so it has keyboard focus — keystrokes go to
+3. **Click on the game window** so it has keyboard focus- keystrokes go to
    whatever window is focused, not to the terminal.
 4. Play. `Ctrl+C` in the terminal (or Alt-Tab back to it) to stop.
 
@@ -474,13 +474,13 @@ The controller needs permission to inject keystrokes. The setup script
 installs the `pynput` package for you on first use; the OS-level permission is
 on you:
 
-- **Windows** — nothing to do. If a game doesn't respond, run the setup script
+- **Windows**- nothing to do. If a game doesn't respond, run the setup script
   as Administrator (some games ignore input from lower-privilege processes).
-- **macOS** — the first run pops up
+- **macOS**- the first run pops up
   **System Settings → Privacy & Security → Accessibility**. Enable **Terminal**
   (or iTerm, whichever you launched from), then restart the script. Without
   this, macOS silently swallows every keystroke.
-- **Linux** — it prefers the kernel-level `uinput` backend, which works on
+- **Linux**- it prefers the kernel-level `uinput` backend, which works on
   X11, Wayland, and with games that read evdev directly. If it prints "No
   working injection backend", run the commands it prints:
   ```bash
@@ -505,7 +505,7 @@ on you:
 | Extension | ![Extension gesture](images/gesture_extension.webp) |
 
 **Rest** is the fourth class: arm relaxed, muscles idle. It isn't a gesture
-you perform — it's what the model should say when you're not doing anything.
+you perform- it's what the model should say when you're not doing anything.
 
 ### If gestures aren't recognised correctly
 
@@ -519,17 +519,17 @@ retraining, try the cheap fixes:
 
 If it's still unreliable, train your own model:
 
-1. **Option 1** — record your own pinch / flexion / extension **and rest**
+1. **Option 1**- record your own pinch / flexion / extension **and rest**
    trials.
-2. **Option 2** — train on your own data.
-3. **Option 3 or 4** — it now uses your model and should track you much better.
+2. **Option 2**- train on your own data.
+3. **Option 3 or 4**- it now uses your model and should track you much better.
 
 ---
 
 ## Advanced: tuning flags
 
 The menu covers the common cases. For finer control, run the scripts directly
-with flags (activate the venv first — see
+with flags (activate the venv first- see
 [Manual setup](#manual-setup-no-scripts)).
 
 **Gesture controller** (`python gesture_controller.py --help` for the full
@@ -542,7 +542,7 @@ list):
 | `--debounce_ms` | 300 | Minimum ms between presses in tap mode. |
 | `--same_button_ms` | 500 | Minimum ms before the *same* key can repeat. |
 | `--allow_hold_repeat` | off | Let a held gesture auto-repeat instead of requiring a return to rest. |
-| `--class_thresholds` | per-class | Confidence needed per gesture, e.g. `flexion=0.50,extension=0.91`. Raise a class if it false-fires; lower it for faster response. **Re-derive these after retraining** — they're properties of one specific model. |
+| `--class_thresholds` | per-class | Confidence needed per gesture, e.g. `flexion=0.50,extension=0.91`. Raise a class if it false-fires; lower it for faster response. **Re-derive these after retraining**- they're properties of one specific model. |
 | `--votes` / `--votes_needed` | 5 / 4 | A label is only accepted after N of the last M windows agree. Raise for stability, lower for speed. |
 | `--hold_votes` | 3 | Votes needed to *keep* holding in hold mode. Lower = stickier hold, slower release. |
 | `--key_hold_ms` | 60 | How long each key is physically held. Raise to 80–100 if a game misses presses. |
@@ -572,11 +572,11 @@ only), `--out_dir`.
 In order of likelihood:
 
 1. **The board is off.** Power LED lit?
-2. **Something else is already connected to it** — the Chords web app, a phone
+2. **Something else is already connected to it**- the Chords web app, a phone
    app, or another one of these scripts still running in another window. Close
    it. Only one connection at a time.
 3. **Bluetooth is off** on your computer, or the BLE adapter is disabled.
-4. **You paired it in OS Bluetooth settings.** Forget/remove the device — these
+4. **You paired it in OS Bluetooth settings.** Forget/remove the device- these
    scripts connect directly and pairing can block that.
 5. **Too far / obstructed.** Bring it within a couple of metres, clear line of
    sight.
@@ -588,12 +588,12 @@ In order of likelihood:
 
 ### The controller detects gestures but nothing happens in my game/app
 
-- **The wrong window has focus.** Click the game first — keystrokes go to the
+- **The wrong window has focus.** Click the game first- keystrokes go to the
   focused window.
 - **You're in dry-run mode** (option 3). Use option 1 or 2 instead.
-- **The game reads key state per frame** (racing/driving) — use **hold mode**,
+- **The game reads key state per frame** (racing/driving)- use **hold mode**,
   not tap.
-- **The game still misses presses** — raise the hold time:
+- **The game still misses presses**- raise the hold time:
   `python gesture_controller.py --press_mode tap --key_hold_ms 100`
 - **macOS**: Accessibility permission not granted (see option 4 above).
 - **Windows**: try running the setup script as Administrator.
@@ -608,7 +608,7 @@ you will while playing.
 
 ### `pos_exit_frac >= pos_enter_frac` warning
 
-Harmless — you passed values that would disable hysteresis, so it clamped
+Harmless- you passed values that would disable hysteresis, so it clamped
 them. Ignore it unless you set those flags on purpose.
 
 ### `Invalid choice` when picking a menu option
@@ -619,7 +619,7 @@ Type just the digit, then Enter.
 ### `ImportError: DLL load failed ... An Application Control policy has blocked this file` (Windows)
 
 Usually appears while importing `pandas` during **option 2**. It's not a broken
-install — Windows (Smart App Control / Application Control policy) is blocking
+install- Windows (Smart App Control / Application Control policy) is blocking
 one of pandas' compiled files, and it's stricter for files in `Downloads`.
 
 1. **Move the whole project folder out of `Downloads`**, to something like
@@ -630,7 +630,7 @@ one of pandas' compiled files, and it's stricter for files in `Downloads`.
    ```
 3. Delete the `venv` folder and let the setup script recreate it, so packages
    reinstall fresh in the new location.
-4. On a work/school-managed PC this may be IT policy — you may need Python
+4. On a work/school-managed PC this may be IT policy- you may need Python
    allow-listed, or run from an already-open terminal instead of
    double-clicking.
 
@@ -647,7 +647,7 @@ Still blocked? Smart App Control may be in enforced mode. Either run
 `setup_and_run.bat` from an already-open PowerShell/Command Prompt in that
 folder, or turn Smart App Control off via **Settings → Privacy & security →
 Windows Security → App & browser control → Smart App Control settings → Off**.
-(On Windows 11 that's generally a one-way switch — you can't turn it back on
+(On Windows 11 that's generally a one-way switch- you can't turn it back on
 without reinstalling Windows.)
 
 ### `OSError: ... No such file or directory ... tensorflow\include\external\envoy_api\...` during `pip install` (Windows)
@@ -662,7 +662,7 @@ succeeded.
    New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
    ```
 3. **Restart your computer** (required).
-4. Run the setup script again — it picks up where it left off.
+4. Run the setup script again- it picks up where it left off.
 
 Keeping the project path short (`C:\Dev\NPG-Lite` rather than a deeply nested
 `Downloads\NPG-Lite-ArmBand-Software-main\NPG-Lite-ArmBand-Software-main`)
@@ -697,12 +697,12 @@ or if the scripts don't work on your machine.
 
 ### 1. Install Python
 
-Install **Python 3.12.7** (any 3.10+ works — 3.12.7 is what this was tested
+Install **Python 3.12.7** (any 3.10+ works- 3.12.7 is what this was tested
 with).
 
 - **Windows**: download
   https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe and run it.
-  **Check "Add python.exe to PATH"** on the first screen — it's off by default
+  **Check "Add python.exe to PATH"** on the first screen- it's off by default
   and is the #1 reason `python` isn't recognised afterward.
 - **macOS**: `brew install python@3.12`, or
   https://www.python.org/ftp/python/3.12.7/python-3.12.7-macos11.pkg
@@ -762,7 +762,7 @@ python gesture_controller.py --press_mode hold
 python gesture_controller.py --press_mode tap --dry_run
 ```
 
-Run only the one you want — you don't have to run them all.
+Run only the one you want- you don't have to run them all.
 
 ### 6. Next time
 
@@ -777,7 +777,7 @@ Skip steps 1–4. Reopen a terminal in the project folder, activate the venv
 |---|---|
 | `record_gesture.py` | Connects to the ArmBand over Bluetooth, plays go/stop beep cues, and saves your filtered EMG + accelerometer data as CSVs for training. |
 | `train_gesture_model.py` | Reads the recorded CSVs and trains a gesture classifier, saving the result into `gesture_model/`. |
-| `model_architectures.py` | Defines the CNN / LSTM / CNN-LSTM network structures. You don't run this directly — the training script imports it. |
+| `model_architectures.py` | Defines the CNN / LSTM / CNN-LSTM network structures. You don't run this directly- the training script imports it. |
 | `gesture_ui_server.py` | Connects live, runs the model in real time, and shows the recognised gesture in a browser dashboard. Presses no keys. |
 | `gesture_controller.py` | Connects live and turns gestures into real arrow-key presses (tap or hold mode), with automatic up/down/rest calibration. |
 | `gesture_model/` | The trained model files. Ships with a pretrained model so options 3 and 4 work immediately; training overwrites it. |
@@ -790,7 +790,7 @@ Skip steps 1–4. Reopen a terminal in the project folder, activate the venv
 - All scripts are safe to re-run: Python install and venv creation are skipped
   if already done, and `pip install -r requirements.txt` only installs what's
   missing or outdated.
-- Everything installs into a local `venv/` folder inside the project — nothing
+- Everything installs into a local `venv/` folder inside the project- nothing
   goes system-wide except Python itself (if it was missing).
 - The board can only hold **one** connection at a time. Close option 3 before
   starting option 4, and vice versa.

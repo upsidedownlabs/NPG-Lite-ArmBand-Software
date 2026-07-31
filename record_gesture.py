@@ -6,17 +6,17 @@ Notch (mains hum) filter followed by an EMG bandpass filter to each
 channel in real time, ALSO reads the board's onboard accelerometer (IMU
 characteristic) and holds the latest accel sample alongside every EMG
 sample, and saves the FILTERED EMG + accel data (not raw) as ONE merged
-CSV per trial — ready to be used as training data for a gesture
+CSV per trial- ready to be used as training data for a gesture
 classifier (pinch, flexion, extension, etc.).
 
 Single band, multiple devices: this script still supports more than one
-device connected at once — in that case every device's channels are
+device connected at once- in that case every device's channels are
 merged side-by-side, sample-index-aligned (all devices are told to start
 streaming at the same instant), in address-sorted role order (dev1, dev2,
 ...; see resolve_devices() below), and each device's own
 accel_x/accel_y/accel_z columns are appended after all the EMG channels.
 Devices are recognized purely by their advertised name prefix
-(DEVICE_NAME_PREFIX, "NPG-Lite-band", matched case-insensitively) — there's
+(DEVICE_NAME_PREFIX, "NPG-Lite-band", matched case-insensitively)- there's
 no MAC address allow-list to
 maintain, since end users generally don't know their board's MAC address
 in advance. Every board of this type reports the same EMG channel count
@@ -30,7 +30,7 @@ EMG channels (500 Hz). Rather than resampling, this script uses simple
 recently received accel reading was, so wrist/arm orientation is still
 available to the model as a slowly-changing feature alongside the fast
 EMG signal. Values are raw signed 16-bit LIS3DH counts, not converted to
-g's — that's fine for a classifier since it only cares about relative
+g's- that's fine for a classifier since it only cares about relative
 scale (and both training and real-time inference use the same raw units).
 
 Beep cue (repeated go/stop signal):
@@ -413,7 +413,7 @@ class EXGFilter:
                 self.z2 = self.z1
                 self.z1 = self.x4
                 ch_data = output
-            # (ECG/EOG/EEG cases omitted here — add back from filters.ts if you need them)
+            # (ECG/EOG/EEG cases omitted here- add back from filters.ts if you need them)
 
         elif self.sampling_rate == 250:
             if exg_type == 4:  # EMG, 70Hz
@@ -570,13 +570,13 @@ class DeviceRecorder:
 
         # Sample-and-hold accel state, updated asynchronously by
         # handle_imu_notify() whenever a new IMU notification arrives.
-        # Starts at (0, 0, 0) — if the IMU never sends anything (e.g. no
+        # Starts at (0, 0, 0)- if the IMU never sends anything (e.g. no
         # IMU wired to this board), rows just get zeros for accel, which
         # is called out via self.has_imu below.
         self.latest_accel = [0, 0, 0]
         self.has_imu = False
 
-        # One filter pair PER CHANNEL — never share instances across channels
+        # One filter pair PER CHANNEL- never share instances across channels
         self.notch_filters = []
         self.emg_filters = []
         for _ in range(self.channels):
@@ -640,7 +640,7 @@ class DeviceRecorder:
         self.has_imu = True
 
     async def connect(self):
-        """Just connect + subscribe. Must be called ONE DEVICE AT A TIME —
+        """Just connect + subscribe. Must be called ONE DEVICE AT A TIME-
         BlueZ can't handle concurrent Connect() calls (raises
         org.bluez.Error.InProgress if you gather() these)."""
         self.client = BleakClient(self.ble_device.address)
@@ -678,7 +678,7 @@ class DeviceRecorder:
                   f"- accel columns are all zeros. Check the board has a working IMU.")
 
     def save_csv(self):
-        """Per-device raw dump — kept available for debugging, but normal
+        """Per-device raw dump- kept available for debugging, but normal
         recording now uses merge_and_save() below instead so training data
         is one combined multi-channel file per trial."""
         header = ["timestamp", "counter"] + [f"ch{i + 1}" for i in range(self.channels)]
@@ -1107,14 +1107,14 @@ async def record_gesture(gesture_name, resolved_devices, trial_num, subject_dir)
 
     recorders = []
     for dev, role, channels in resolved_devices:
-        # No individual out_path needed anymore — merge_and_save() below
+        # No individual out_path needed anymore- merge_and_save() below
         # writes ONE combined file per trial instead of one per device.
         recorders.append(DeviceRecorder(dev, out_path=None, channels=channels, role=role))
 
     print(f"\nConnecting to {len(recorders)} device(s) for gesture '{gesture_name}' (trial {trial_num})...")
     fixed_order = " -> ".join(r.role for r in recorders)
     print(f"  Connect order (address-sorted, independent of scan order): {fixed_order}")
-    # Connect ONE AT A TIME — BlueZ errors out (InProgress) on concurrent Connect() calls
+    # Connect ONE AT A TIME- BlueZ errors out (InProgress) on concurrent Connect() calls
     for r in recorders:
         print(f"  Connecting to {r.role} [{r.name}] ({r.ble_device.address}, {r.channels}ch)...")
         await r.connect()
@@ -1144,9 +1144,9 @@ async def record_gesture(gesture_name, resolved_devices, trial_num, subject_dir)
         )
         STDIN.drain()
         if await STDIN.wait_for_enter(MAX_RECORD_SECONDS):
-            print("Enter pressed — stopping early.")
+            print("Enter pressed- stopping early.")
         else:
-            print(f"\nReached {MAX_RECORD_SECONDS}s limit — stopping automatically.")
+            print(f"\nReached {MAX_RECORD_SECONDS}s limit- stopping automatically.")
 
     else:
         # --- Repeated-beep-reps flow: many short reps inside one recording
@@ -1222,9 +1222,9 @@ async def record_gesture(gesture_name, resolved_devices, trial_num, subject_dir)
 
         STDIN.drain()
         if await STDIN.wait_for_enter(MAX_RECORD_SECONDS):
-            print("Enter pressed — stopping early.")
+            print("Enter pressed- stopping early.")
         else:
-            print(f"\nReached {MAX_RECORD_SECONDS}s limit — stopping automatically.")
+            print(f"\nReached {MAX_RECORD_SECONDS}s limit- stopping automatically.")
 
         stop_event.set()
         await beeper_task

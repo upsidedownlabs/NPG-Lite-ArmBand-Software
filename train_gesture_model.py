@@ -29,7 +29,7 @@ Pipeline:
        are configured) columns written by record_gesture.py's single-band
        + accel setup. If a matching
        "<file>.beep.json" sidecar exists (written by record_gesture.py's
-       beep cue), it lists the clean sample-index segments — for active
+       beep cue), it lists the clean sample-index segments- for active
        gestures, one short segment per rep (right after each beep, skipping
        reaction time); for 'rest', one long segment covering the rest of
        the trial. Files with no sidecar (recorded before the beep cue
@@ -320,7 +320,7 @@ def main():
 
     # Determine feature columns (EMG + accel) from the first file, verify
     # every other file has the exact same set of columns in the same
-    # order — not just the same count, since e.g. a file recorded with the
+    # order- not just the same count, since e.g. a file recorded with the
     # IMU characteristic missing would still have the right accel column
     # names (zeros) but a mismatched name would mean a different band
     # config was used for that recording.

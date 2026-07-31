@@ -7,7 +7,7 @@ All models take a sliding window of FILTERED sensor samples as input:
     shape = (window_size, num_channels)
 and output a softmax distribution over the gesture classes.
 
-num_channels is generic — it doesn't care whether the columns are EMG
+num_channels is generic- it doesn't care whether the columns are EMG
 channels or accelerometer axes. With the single-band + accel setup in
 record_gesture.py, num_channels = (EMG channels) + 3 (accel_x/y/z), and
 these architectures don't need any change to consume that: the CNN/LSTM
