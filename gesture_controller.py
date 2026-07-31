@@ -72,7 +72,7 @@ BLE_SHUTDOWN_TIMEOUT_S = 12.0
 # replay_buffer.npz with tune_thresholds.py for the shipped 4-class model; any
 # class name here that the loaded model does not have is ignored (see
 # parse_class_thresholds), never a startup error.
-DEFAULT_CLASS_THRESHOLDS = "flexion=0.50,extension=0.91,pinch=0.66,rest=0.50"
+DEFAULT_CLASS_THRESHOLDS = "flexion=0.90,extension=0.90,pinch=0.90,rest=0.90"
 
 # ==============================
 # Filters
@@ -1358,10 +1358,9 @@ def model_thread_main(state, predictor, threshold, votes_needed=2):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model_dir", default="gesture_model")
-    ap.add_argument("--confidence_threshold", type=float, default=0.80,
-                   help="minimum top-class probability per window (default 0.80; a "
-                        "majority vote over --votes windows provides the stability "
-                        "that the old 0.95 threshold was doing by itself)")
+    ap.add_argument("--confidence_threshold", type=float, default=0.90,
+               help="minimum top-class probability per window (default 0.90; a "
+                    "majority vote over --votes windows provides extra stability)")
     ap.add_argument("--debounce_ms", type=int, default=300,
                    help="debounce time in ms between button presses (default: 300ms)")
     ap.add_argument("--infer_stride", type=int, default=25,
