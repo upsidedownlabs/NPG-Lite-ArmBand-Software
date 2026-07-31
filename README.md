@@ -643,13 +643,6 @@ manually:
 2. At the bottom of the **General** tab, tick **Unblock**
 3. **Apply → OK**, then run it again
 
-Still blocked? Smart App Control may be in enforced mode. Either run
-`setup_and_run.bat` from an already-open PowerShell/Command Prompt in that
-folder, or turn Smart App Control off via **Settings → Privacy & security →
-Windows Security → App & browser control → Smart App Control settings → Off**.
-(On Windows 11 that's generally a one-way switch- you can't turn it back on
-without reinstalling Windows.)
-
 ### `OSError: ... No such file or directory ... tensorflow\include\external\envoy_api\...` during `pip install` (Windows)
 
 **Windows path length limits.** Some TensorFlow header paths exceed the default
@@ -697,8 +690,7 @@ or if the scripts don't work on your machine.
 
 ### 1. Install Python
 
-Install **Python 3.12.7** (any 3.10+ works- 3.12.7 is what this was tested
-with).
+Install **Python 3.12.7** 
 
 - **Windows**: download
   https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe and run it.
