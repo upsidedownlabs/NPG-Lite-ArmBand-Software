@@ -36,12 +36,27 @@ from tensorflow import keras
 DATA_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 CONTROL_CHAR_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
 IMU_CHAR_UUID = "5a153fa9-7be0-400c-8ef8-d84502b31c4d"  # onboard accel, notify-only
-DEVICE_NAME_PREFIX = "NPG-Lite-Band"
+DEVICE_NAME_PREFIX = "NPG-Lite-band"
 SAMPLES_PER_PACKET = 20  # BLOCK_COUNT in firmware
 IMU_SAMPLE_LEN = 7       # firmware IMU_SAMPLE_SIZE: 1 counter byte + 3x int16 (ax,ay,az)
 
 ADC_BITS = "12"
 NOTCH_TYPE = 1  # 1 = 50Hz mains, 2 = 60Hz mains - must match record_gesture.py setting used for training
+
+# NotchFilter/EXGFilter only carry hand-derived biquad coefficients for these
+# rates. main() refuses to start on anything else rather than letting the
+# filters degrade to a pass-through and produce silently wrong predictions.
+SUPPORTED_SAMPLING_RATES = (250, 500)
+
+# Bleak's connect() can block indefinitely on some backends if the board goes
+# out of range between the scan and the connect.
+CONNECT_TIMEOUT_S = 15.0
+
+# Each teardown step (STOP write, stop_notify, disconnect) gets its own budget
+# so one unresponsive board can't stall the whole exit.
+DISCONNECT_TIMEOUT_S = 2.0
+# How long main() waits for the BLE thread to finish that teardown on Ctrl+C.
+BLE_SHUTDOWN_TIMEOUT_S = 12.0
 
 # Gesture names the hand animation knows explicit poses for. Any predicted
 # class not in this set (or "rest") just falls back to the neutral pose with
@@ -123,20 +138,22 @@ class EXGFilter:
         if not exg_type:
             return input_val
         output = input_val
-        ch_data = 0.0
         if self.sampling_rate == 500 and exg_type == 4:
             self.x4 = output - (-0.82523238 * self.z1) - (0.29463653 * self.z2)
             output = 0.52996723 * self.x4 + -1.05993445 * self.z1 + 0.52996723 * self.z2
             self.z2 = self.z1
             self.z1 = self.x4
-            ch_data = output
         elif self.sampling_rate == 250 and exg_type == 4:
             self.x4 = output - 0.22115344 * self.z1 - 0.18023207 * self.z2
             output = 0.23976966 * self.x4 + -0.47953932 * self.z1 + 0.23976966 * self.z2
             self.z2 = self.z1
             self.z1 = self.x4
-            ch_data = output
-        return ch_data
+        # Unsupported (sampling_rate, exg_type) pair: pass the sample through
+        # unfiltered. This used to `return 0.0`, which fed every EMG channel to
+        # the model as zeros with no error while the dashboard kept showing
+        # confident output. main() validates sampling_rate at load time, so
+        # this branch should be unreachable in practice.
+        return output
 
 
 # ==============================
@@ -160,6 +177,23 @@ class EXGFilter:
 # record_gesture.py, update it to match this logic too.
 # ==============================
 DEFAULT_CHANNELS_PER_DEVICE = 3  # EMG channels per NPG-Lite board
+
+
+def device_name_matches(name):
+    """True if `name` is one of our bands.
+
+    Matched case-insensitively on purpose: the firmware currently advertises
+    'NPG-Lite-band-3CH:...' (lowercase b) while the constant was written
+    'NPG-Lite-Band' during the repo rename, and a plain startswith() rejected
+    every board with a "no devices found" message. Casing has flipped between
+    firmware builds before, so don't rely on it.
+
+    The prefix still ends at '-band' deliberately: it must NOT match other
+    NPG-Lite boards such as 'NPG-Lite-6CH:...', because
+    DEFAULT_CHANNELS_PER_DEVICE below is hardcoded to the band's channel count
+    rather than parsed from the advertised name.
+    """
+    return bool(name) and name.lower().startswith(DEVICE_NAME_PREFIX.lower())
 
 
 def resolve_all_known_devices(found):
@@ -237,13 +271,22 @@ def ble_thread_main(state, selected_devices):
     """selected_devices: list of BLEDevice objects already discovered and
     chosen in main() (one device by default; every device in range with
     --all_devices)."""
+    def fail(msg):
+        """Single place where a BLE problem becomes visible to the dashboard.
+        Without this an exception anywhere in run() escaped asyncio.run() inside
+        this daemon thread: the thread died, state.running stayed True, and the
+        browser kept showing stale 'connecting.../streaming...' text forever
+        while no predictions were ever produced."""
+        state.status_msg = f"ERROR: {msg}"
+        state.running = False
+        print(f"[ERROR] BLE: {msg}")
+
     async def run():
         resolved = resolve_all_known_devices(selected_devices)
         if not resolved:
             # Shouldn't happen in practice (resolve_all_known_devices accepts
             # everything in `found`), kept as a defensive guard.
-            state.status_msg = "ERROR: could not resolve any discovered devices"
-            state.running = False
+            fail("could not resolve any discovered devices")
             return
 
         # Total feature count must match what the model was trained on:
@@ -254,12 +297,10 @@ def ble_thread_main(state, selected_devices):
         total_channels = total_emg_channels + 3 * len(resolved)
         if total_channels != state.num_channels:
             roles_found = [role for _, role, _ in resolved]
-            state.status_msg = (f"ERROR: connected devices {roles_found} provide "
-                                 f"{total_emg_channels}ch EMG + {3 * len(resolved)}ch accel = "
-                                 f"{total_channels}ch total but model expects "
-                                 f"{state.num_channels}ch (check how many NPG-Lite boards "
-                                 f"are powered on / in range)")
-            state.running = False
+            fail(f"connected devices {roles_found} provide {total_emg_channels}ch EMG "
+                 f"+ {3 * len(resolved)}ch accel = {total_channels}ch total but the model "
+                 f"expects {state.num_channels}ch (check how many NPG-Lite boards are "
+                 f"powered on / in range)")
             return
 
         role_order = [role for _, role, _ in resolved]
@@ -323,29 +364,68 @@ def ble_thread_main(state, selected_devices):
             return handle_notify
 
         clients = []
-        for dev, role, channels in resolved:
-            state.status_msg = f"connecting to {role} ({dev.address})..."
-            client = BleakClient(dev.address)
-            await client.connect()
-            filters = per_device_filters[role]
-            await client.start_notify(
-                DATA_CHAR_UUID,
-                make_handler(role, channels, filters["notch"], filters["emg"]),
-            )
+        client_roles = {}
+        try:
+            for dev, role, channels in resolved:
+                state.status_msg = f"connecting to {role} ({dev.address})..."
+                client = BleakClient(dev.address)
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    fail(f"timed out connecting to {role} ({dev.address}) "
+                         f"after {CONNECT_TIMEOUT_S:.0f}s")
+                    return
+                except Exception as e:
+                    fail(f"could not connect to {role} ({dev.address}): {e}")
+                    return
+                clients.append(client)
+                client_roles[client] = role
+                filters = per_device_filters[role]
+                try:
+                    await client.start_notify(
+                        DATA_CHAR_UUID,
+                        make_handler(role, channels, filters["notch"], filters["emg"]),
+                    )
+                except Exception as e:
+                    fail(f"could not subscribe to the EMG stream on {role} "
+                         f"({dev.address}): {e}")
+                    return
+                try:
+                    await client.start_notify(IMU_CHAR_UUID, make_imu_handler(role))
+                except Exception as e:
+                    print(f"(warning) IMU characteristic not available for {role} "
+                          f"({e}) - accel features will stay at 0 for this device.")
+            state.status_msg = f"connected: {'+'.join(role_order)}"
+
             try:
-                await client.start_notify(IMU_CHAR_UUID, make_imu_handler(role))
+                await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True) for c in clients))
+                await asyncio.sleep(0.1)
+                await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"START", response=True) for c in clients))
             except Exception as e:
-                print(f"(warning) IMU characteristic not available for {role} "
-                      f"({e}) - accel features will stay at 0 for this device.")
-            clients.append(client)
-        state.status_msg = f"connected: {'+'.join(role_order)}"
+                fail(f"could not start the stream (START/STOP write failed): {e}")
+                return
+            state.status_msg = f"streaming: {'+'.join(role_order)}"
 
-        await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True) for c in clients))
-        await asyncio.sleep(0.1)
-        await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"START", response=True) for c in clients))
-        state.status_msg = f"streaming: {'+'.join(role_order)}"
+            await stream_loop(clients, client_roles, role_order, device_queues,
+                              queue_lock, latest_accel, accel_lock)
+        finally:
+            await shutdown(clients)
 
+    async def stream_loop(clients, client_roles, role_order, device_queues,
+                          queue_lock, latest_accel, accel_lock):
+        last_health_check = time.monotonic()
         while state.running:
+            # A device that drops mid-session would otherwise leave the merge
+            # condition below permanently unsatisfiable (its queue never refills)
+            # and this loop would spin forever with a stale "streaming" status.
+            now = time.monotonic()
+            if now - last_health_check >= 1.0:
+                last_health_check = now
+                for c in clients:
+                    if not c.is_connected:
+                        fail(f"{client_roles.get(c, 'device')} disconnected mid-session")
+                        return
+
             merged_sample = None
             with queue_lock:
                 if all(device_queues[r] for r in role_order):
@@ -371,36 +451,54 @@ def ble_thread_main(state, selected_devices):
                     state.new_since_last_window = 0
                     state.ready_window = window
 
-        for c in clients:
+    async def shutdown(clients):
+        """Best-effort teardown. Every step is individually timed out and
+        individually guarded: the STOP write used to share a try: with
+        stop_notify, so a board that had already gone out of range skipped the
+        rest of its own cleanup."""
+        async def attempt(coro):
             try:
-                await c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True)
-                await c.stop_notify(DATA_CHAR_UUID)
+                await asyncio.wait_for(coro, timeout=DISCONNECT_TIMEOUT_S)
             except Exception:
-                pass
-            try:
-                await c.stop_notify(IMU_CHAR_UUID)
-            except Exception:
-                pass
-            try:
-                await c.disconnect()
-            except Exception:
-                pass
+                pass  # already gone / unresponsive - nothing useful left to do
 
-    asyncio.run(run())
+        for c in clients:
+            await attempt(c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True))
+            await attempt(c.stop_notify(DATA_CHAR_UUID))
+            await attempt(c.stop_notify(IMU_CHAR_UUID))
+            await attempt(c.disconnect())
+
+    try:
+        asyncio.run(run())
+    except Exception as e:  # nothing else would ever surface this
+        fail(f"unexpected BLE error: {e}")
 
 
 # ==============================
 # Model inference thread - pulls ready windows and updates state.pred_class
 # ==============================
 def model_thread_main(state, model, mean, std, threshold):
+    # A constant channel in the training set gives std = 0 for that column;
+    # dividing by it produces inf/nan features and argmax then returns an
+    # arbitrary class at a confident-looking probability. Clamp instead.
+    safe_std = np.where(np.abs(std) < 1e-8, 1.0, std).astype(np.float32)
+
     while state.running:
         with state.lock:
             window = state.ready_window
             state.ready_window = None
 
         if window is not None:
-            x = (window[np.newaxis, :, :] - mean) / std
-            probs = model.predict(x, verbose=0)[0]
+            try:
+                x = (window[np.newaxis, :, :] - mean) / safe_std
+                probs = model.predict(x, verbose=0)[0]
+            except Exception as e:
+                # Without this an inference error killed this daemon thread
+                # silently and the dashboard froze on the last prediction.
+                state.status_msg = f"ERROR: inference failed: {e}"
+                state.running = False
+                print(f"[ERROR] inference failed: {e}")
+                return
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
             with state.lock:
@@ -745,8 +843,19 @@ def main():
                           "behavior) instead of prompting to pick one")
     args = ap.parse_args()
 
-    with open(os.path.join(args.model_dir, "meta.json")) as f:
+    # encoding is explicit: open() otherwise uses the locale default (still
+    # cp1252 on many Windows setups) and non-ASCII class names would raise
+    # UnicodeDecodeError on a platform this script claims to support.
+    with open(os.path.join(args.model_dir, "meta.json"), encoding="utf-8") as f:
         meta = json.load(f)
+
+    if meta.get("sampling_rate") not in SUPPORTED_SAMPLING_RATES:
+        print(f"ERROR: meta.json sampling_rate={meta.get('sampling_rate')} Hz is not "
+              f"supported. The notch/EMG filters only have coefficients for "
+              f"{SUPPORTED_SAMPLING_RATES} Hz - at any other rate they pass the raw "
+              f"signal straight through and every prediction is meaningless while "
+              f"still looking confident. Retrain at a supported rate.")
+        return
 
     window_size = meta["window_size"]
     stride = meta["stride"]
@@ -770,8 +879,15 @@ def main():
     # Scan + pick the device BEFORE the server/browser start, so the
     # selection prompt appears cleanly in the terminal.
     print(f"Scanning for {DEVICE_NAME_PREFIX}* devices (6s)...")
-    discovered = asyncio.run(BleakScanner.discover(timeout=6))
-    found = [d for d in discovered if d.name and d.name.startswith(DEVICE_NAME_PREFIX)]
+    try:
+        discovered = asyncio.run(BleakScanner.discover(timeout=6))
+    except Exception as e:
+        print(f"ERROR: Bluetooth scan failed ({e}).")
+        print("  Check that Bluetooth is switched on and that this terminal has "
+              "permission to use it (on macOS: System Settings > Privacy & "
+              "Security > Bluetooth), then re-run.")
+        return
+    found = [d for d in discovered if device_name_matches(d.name)]
     if not found:
         print("ERROR: no NPG-Lite device found. Power on the ArmBand and re-run.")
         return
@@ -783,7 +899,9 @@ def main():
     else:
         selected_devices = [select_device(found)]
 
-    threading.Thread(target=ble_thread_main, args=(state, selected_devices), daemon=True).start()
+    ble_thread = threading.Thread(target=ble_thread_main,
+                                  args=(state, selected_devices), daemon=True)
+    ble_thread.start()
     threading.Thread(target=model_thread_main, args=(state, model, mean, std, args.confidence_threshold),
                       daemon=True).start()
 
@@ -799,11 +917,26 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        print("\nStopping...")
     finally:
         state.running = False
         server.shutdown()
-        print("\nDone.")
+        server.server_close()
+        # The BLE thread is a daemon. Setting state.running = False only ASKS it
+        # to stop; the actual teardown (STOP write, stop_notify, GATT
+        # disconnect) is async and takes hundreds of ms. Without this join,
+        # main() returned immediately, the interpreter exited, and every daemon
+        # thread was killed mid-disconnect - so the board never got its STOP,
+        # kept streaming into a dead link, and stayed "connected" until its own
+        # supervision timeout expired. That is why it often would not show up in
+        # the next scan.
+        print("Disconnecting device(s)...")
+        ble_thread.join(timeout=BLE_SHUTDOWN_TIMEOUT_S)
+        if ble_thread.is_alive():
+            print(f"(warning) device did not disconnect cleanly within "
+                  f"{BLE_SHUTDOWN_TIMEOUT_S:.0f}s. If the next run cannot find "
+                  f"it, power-cycle the band.")
+        print("Done.")
 
 
 if __name__ == "__main__":

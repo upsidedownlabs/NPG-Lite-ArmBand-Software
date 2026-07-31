@@ -182,7 +182,8 @@ pause
 goto controller_menu
 
 :ctrl_dry
-call :ensure_ctrl_deps
+REM No :ensure_ctrl_deps here on purpose: --dry_run uses NullBackend and injects
+REM no keys, so the safe test mode must not depend on installing pynput.
 "%VENV_PY%" gesture_controller.py --press_mode tap --dry_run
 echo.
 pause

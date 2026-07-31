@@ -16,7 +16,8 @@ streaming at the same instant), in address-sorted role order (dev1, dev2,
 ...; see resolve_devices() below), and each device's own
 accel_x/accel_y/accel_z columns are appended after all the EMG channels.
 Devices are recognized purely by their advertised name prefix
-(DEVICE_NAME_PREFIX, "NPG-Lite-") — there's no MAC address allow-list to
+(DEVICE_NAME_PREFIX, "NPG-Lite-band", matched case-insensitively) — there's
+no MAC address allow-list to
 maintain, since end users generally don't know their board's MAC address
 in advance. Every board of this type reports the same EMG channel count
 (DEFAULT_CHANNELS_PER_DEVICE), so channel count doesn't need to be looked
@@ -111,16 +112,104 @@ import json
 import math
 import os
 import platform
+import queue
 import random
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 
 from bleak import BleakScanner, BleakClient
+
+
+# ==============================
+# stdin
+# ==============================
+class _Nothing:
+    """Sentinel: the queue was empty, as distinct from an empty input line."""
+
+
+_NOTHING = _Nothing()
+
+
+class StdinReader:
+    """The single owner of stdin for this process.
+
+    Recording used to do `loop.run_in_executor(None, input)` once per trial.
+    When a trial hit MAX_RECORD_SECONDS instead of an early Enter, that task
+    stayed blocked on stdin forever and permanently consumed a worker in the
+    default ThreadPoolExecutor (bounded to min(32, cpu_count + 4)). Since
+    record_gesture() runs once per trial, enough auto-stops in one session
+    exhausted the pool and every later prompt queued forever, hanging the tool.
+    Leftover readers also raced legitimate prompts for the same stdin fd and
+    could silently swallow the line meant for the next question.
+
+    One reader thread, one queue, reused by every prompt: nothing blocks the
+    event loop, nothing accumulates, and there is never more than one consumer
+    of the fd. All prompts in this file go through .input(); the async recording
+    path uses .wait_for_enter().
+    """
+
+    def __init__(self):
+        self._q = queue.Queue()
+        threading.Thread(target=self._run, daemon=True, name="stdin-reader").start()
+
+    def _run(self):
+        try:
+            for line in sys.stdin:
+                self._q.put(line.rstrip("\r\n"))
+        except Exception:
+            pass
+        self._q.put(None)  # EOF marker
+
+    def _unwrap(self, line):
+        if line is None:
+            self._q.put(None)  # keep EOF sticky for any later caller
+            raise EOFError("stdin closed")
+        return line
+
+    def input(self, prompt=""):
+        """Drop-in replacement for the builtin input()."""
+        if prompt:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+        return self._unwrap(self._q.get())
+
+    def drain(self):
+        """Discard anything typed before the current prompt was shown."""
+        while True:
+            try:
+                if self._q.get_nowait() is None:
+                    self._q.put(None)
+                    return
+            except queue.Empty:
+                return
+
+    async def wait_for_enter(self, timeout):
+        """True if Enter arrived, False if `timeout` elapsed (or stdin is at
+        EOF) first. Polls the queue from the event loop, so it never leaves a
+        blocked worker thread behind the way the old executor task did."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                line = self._q.get_nowait()
+            except queue.Empty:
+                line = _NOTHING
+            if line is None:
+                self._q.put(None)
+                return False
+            if line is not _NOTHING:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.05)
+
+
+STDIN = StdinReader()
 
 # ==============================
 # BLE UUIDs (must match firmware)
@@ -128,7 +217,7 @@ from bleak import BleakScanner, BleakClient
 DATA_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 CONTROL_CHAR_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
 IMU_CHAR_UUID = "5a153fa9-7be0-400c-8ef8-d84502b31c4d"  # onboard accel, notify-only
-DEVICE_NAME_PREFIX = "NPG-Lite-Band"
+DEVICE_NAME_PREFIX = "NPG-Lite-band"
 USE_ALL_DEVICES = False  # overridden by --all_devices in __main__
 
 SAMPLES_PER_PACKET = 20  # BLOCK_COUNT in firmware
@@ -199,6 +288,23 @@ EMG_TYPE = 4               # fixed: 4 = EMG bandpass in EXGFilter
 # the feature-column order used at training time matches the column order
 # used at inference time. Both files already do this.
 DEFAULT_CHANNELS_PER_DEVICE = 3  # EMG channels per NPG-Lite board
+
+
+def device_name_matches(name):
+    """True if `name` is one of our bands.
+
+    Matched case-insensitively on purpose: the firmware currently advertises
+    'NPG-Lite-band-3CH:...' (lowercase b) while the constant was written
+    'NPG-Lite-Band' during the repo rename, and a plain startswith() rejected
+    every board with a "no devices found" message. Casing has flipped between
+    firmware builds before, so don't rely on it.
+
+    The prefix still ends at '-band' deliberately: it must NOT match other
+    NPG-Lite boards such as 'NPG-Lite-6CH:...', because
+    DEFAULT_CHANNELS_PER_DEVICE below is hardcoded to the band's channel count
+    rather than parsed from the advertised name.
+    """
+    return bool(name) and name.lower().startswith(DEVICE_NAME_PREFIX.lower())
 
 
 # ==============================
@@ -489,8 +595,18 @@ class DeviceRecorder:
             return
 
         offset = 0
-        t = time.time()
-        for _ in range(SAMPLES_PER_PACKET):
+        # One packet carries SAMPLES_PER_PACKET samples acquired at a fixed rate,
+        # so tagging all of them with the arrival time would quantise every
+        # timestamp to a whole packet (~40 ms @ 500 Hz). merge_and_save's
+        # sample_index_for() maps the beep go/stop wall-clock times onto sample
+        # indices, so that quantisation blurs exactly the segment edges the beep
+        # cue design exists to make sharp. Back-date the packet instead: the last
+        # sample is "now", earlier ones step back one sample period each.
+        t_end = time.time()
+        dt = 1.0 / float(SAMPLING_RATE)
+        t_start = t_end - (SAMPLES_PER_PACKET - 1) * dt
+        for i in range(SAMPLES_PER_PACKET):
+            t = t_start + i * dt
             counter = data[offset]
             filtered_vals = []
             for ch in range(self.channels):
@@ -749,7 +865,7 @@ def merge_and_save(gesture_dir, gesture_name, trial_num, recorders, reps=None, m
 async def discover_devices(timeout=6):
     print(f"Scanning for NPG-Lite devices ({timeout}s)...")
     devices = await BleakScanner.discover(timeout=timeout)
-    found = [d for d in devices if d.name and d.name.startswith(DEVICE_NAME_PREFIX)]
+    found = [d for d in devices if device_name_matches(d.name)]
     if not found:
         raise RuntimeError(
             "No NPG-Lite devices found. Make sure both are powered on and advertising."
@@ -776,7 +892,7 @@ def select_device(found):
     for i, d in enumerate(found_sorted, 1):
         print(f"  {i}) {d.name}  ({d.address})")
     while True:
-        choice = input(f"Select device to use [1-{len(found_sorted)}]: ").strip()
+        choice = STDIN.input(f"Select device to use [1-{len(found_sorted)}]: ").strip()
         if choice.isdigit() and 1 <= int(choice) <= len(found_sorted):
             d = found_sorted[int(choice) - 1]
             print(f"Using: {d.name} ({d.address})\n")
@@ -936,7 +1052,7 @@ def sessions_menu(output_root, index):
             "\n  Commands: 'toggle <subject> <gesture> <trial>' flips include_in_training, "
             "'done' returns to the main menu."
         )
-        cmd = input("  > ").strip()
+        cmd = STDIN.input("  > ").strip()
         if not cmd or cmd.lower() in ("done", "q", "quit", "exit"):
             return
         parts = cmd.split()
@@ -1026,19 +1142,11 @@ async def record_gesture(gesture_name, resolved_devices, trial_num, subject_dir)
             f"Recording (filtered)... stay relaxed. Press Enter to stop early, "
             f"or it will auto-stop after {MAX_RECORD_SECONDS}s."
         )
-        input_task = loop.run_in_executor(None, input)
-        timeout_task = asyncio.ensure_future(asyncio.sleep(MAX_RECORD_SECONDS))
-        done, pending = await asyncio.wait(
-            {input_task, timeout_task}, return_when=asyncio.FIRST_COMPLETED
-        )
-        if timeout_task in done:
-            print(f"\nReached {MAX_RECORD_SECONDS}s limit — stopping automatically.")
-            # input_task can't be cancelled cleanly (it's blocking in a background
-            # thread waiting on stdin) — it'll just resolve harmlessly whenever the
-            # user eventually hits Enter at some later prompt.
-        else:
+        STDIN.drain()
+        if await STDIN.wait_for_enter(MAX_RECORD_SECONDS):
             print("Enter pressed — stopping early.")
-            timeout_task.cancel()
+        else:
+            print(f"\nReached {MAX_RECORD_SECONDS}s limit — stopping automatically.")
 
     else:
         # --- Repeated-beep-reps flow: many short reps inside one recording
@@ -1112,16 +1220,11 @@ async def record_gesture(gesture_name, resolved_devices, trial_num, subject_dir)
 
         beeper_task = asyncio.ensure_future(beep_loop())
 
-        input_task = loop.run_in_executor(None, input)
-        timeout_task = asyncio.ensure_future(asyncio.sleep(MAX_RECORD_SECONDS))
-        done, pending = await asyncio.wait(
-            {input_task, timeout_task}, return_when=asyncio.FIRST_COMPLETED
-        )
-        if timeout_task in done:
-            print(f"\nReached {MAX_RECORD_SECONDS}s limit — stopping automatically.")
-        else:
+        STDIN.drain()
+        if await STDIN.wait_for_enter(MAX_RECORD_SECONDS):
             print("Enter pressed — stopping early.")
-            timeout_task.cancel()
+        else:
+            print(f"\nReached {MAX_RECORD_SECONDS}s limit — stopping automatically.")
 
         stop_event.set()
         await beeper_task
@@ -1161,7 +1264,7 @@ async def main():
     # <subject>/...), so different people's trials never mix in the same
     # gesture folder and each subject gets their own dataset_index.json.
     while True:
-        subject_name = input(
+        subject_name = STDIN.input(
             "\nEnter subject name (used as the folder name for this person's "
             "data): "
         ).strip()
@@ -1186,13 +1289,13 @@ async def main():
     existing_rest_trials = next_trial_number(subject_dir, REST_LABEL) - 1
     if existing_rest_trials:
         print(f"\nFound {existing_rest_trials} existing '{REST_LABEL}' trial(s) already recorded for this subject.")
-    ans = input(
+    ans = STDIN.input(
         f"\nRecord '{REST_LABEL}' baseline trials now? Keep your hand relaxed/still "
         f"while recording. [Y/n]: "
     ).strip().lower()
     if ans in ("", "y", "yes"):
         try:
-            n_trials = int(input("  How many rest trials? [default 3]: ").strip() or "3")
+            n_trials = int(STDIN.input("  How many rest trials? [default 3]: ").strip() or "3")
         except ValueError:
             n_trials = 3
         for i in range(n_trials):
@@ -1206,7 +1309,7 @@ async def main():
                 print(f"Error during rest recording: {e}")
 
     while True:
-        gesture_name = input(
+        gesture_name = STDIN.input(
             "\nEnter gesture name (e.g. pinch, flexion, extension), "
             "'sessions' to review/toggle which recordings are used for "
             "training, or 'q' to quit: "

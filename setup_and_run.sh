@@ -136,7 +136,9 @@ controller_menu() {
             2)  ensure_controller_deps
                 "$VENV_PY" gesture_controller.py --press_mode hold
                 echo; read -rp "Press Enter to continue..." _ ;;
-            3)  ensure_controller_deps
+            3)  # No ensure_controller_deps here on purpose: --dry_run uses
+                # NullBackend and injects no keys, so the safe test mode must
+                # not depend on installing pynput/evdev (or on network access).
                 "$VENV_PY" gesture_controller.py --press_mode tap --dry_run
                 echo; read -rp "Press Enter to continue..." _ ;;
             4)  return 0 ;;

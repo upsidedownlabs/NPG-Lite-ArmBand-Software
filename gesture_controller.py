@@ -9,8 +9,8 @@ detects gestures and maps them to button presses:
 - Pinch + Moving Down -> Down button press (requires significant movement)
 
 Features:
-- 300ms debounce time between button presses
-- 3-step calibration (UP → DOWN → REST) with 2-second countdown
+- 800ms debounce time between button presses
+- 3-step calibration (UP -> DOWN -> REST) with 2-second countdown
 - Strict movement detection
 
 Usage:
@@ -45,12 +45,34 @@ from tensorflow import keras
 DATA_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 CONTROL_CHAR_UUID = "0000ff01-0000-1000-8000-00805f9b34fb"
 IMU_CHAR_UUID = "5a153fa9-7be0-400c-8ef8-d84502b31c4d"
-DEVICE_NAME_PREFIX = "NPG-Lite-Band"
+DEVICE_NAME_PREFIX = "NPG-Lite-band"
 SAMPLES_PER_PACKET = 20
 IMU_SAMPLE_LEN = 7
 
 ADC_BITS = "12"
 NOTCH_TYPE = 1
+
+# NotchFilter/EXGFilter only have coefficients for these rates. At any other
+# rate both filters degrade to an unfiltered pass-through, so the model would be
+# fed raw mains-hum-laden samples that look nothing like its training data while
+# the UI still shows confident predictions. Fail loudly instead.
+SUPPORTED_SAMPLING_RATES = (250, 500)
+
+# How long the main loop waits for the first IMU sample before giving up with an
+# explanation instead of printing "Waiting for accelerometer data..." forever.
+ACCEL_WAIT_TIMEOUT_S = 20.0
+
+# Each BLE teardown step gets its own budget so one unresponsive board can't
+# stall the exit; BLE_SHUTDOWN_TIMEOUT_S is how long main() waits for the BLE
+# thread to finish that teardown after Ctrl+C.
+DISCONNECT_TIMEOUT_S = 2.0
+BLE_SHUTDOWN_TIMEOUT_S = 12.0
+
+# Per-class thresholds used when --class_thresholds is not passed. Derived from
+# replay_buffer.npz with tune_thresholds.py for the shipped 4-class model; any
+# class name here that the loaded model does not have is ignored (see
+# parse_class_thresholds), never a startup error.
+DEFAULT_CLASS_THRESHOLDS = "flexion=0.50,extension=0.91,pinch=0.66,rest=0.50"
 
 # ==============================
 # Filters
@@ -124,20 +146,22 @@ class EXGFilter:
         if not exg_type:
             return input_val
         output = input_val
-        ch_data = 0.0
         if self.sampling_rate == 500 and exg_type == 4:
             self.x4 = output - (-0.82523238 * self.z1) - (0.29463653 * self.z2)
             output = 0.52996723 * self.x4 + -1.05993445 * self.z1 + 0.52996723 * self.z2
             self.z2 = self.z1
             self.z1 = self.x4
-            ch_data = output
         elif self.sampling_rate == 250 and exg_type == 4:
             self.x4 = output - 0.22115344 * self.z1 - 0.18023207 * self.z2
             output = 0.23976966 * self.x4 + -0.47953932 * self.z1 + 0.23976966 * self.z2
             self.z2 = self.z1
             self.z1 = self.x4
-            ch_data = output
-        return ch_data
+        # Unsupported (sampling_rate, exg_type) pair: pass the sample through
+        # unfiltered. This used to `return 0.0`, which handed the model an
+        # all-zero EMG channel with no error and no gesture ever detected.
+        # main() validates sampling_rate against SUPPORTED_SAMPLING_RATES at
+        # startup, so this branch should be unreachable in practice.
+        return output
 
 
 # ==============================
@@ -148,7 +172,7 @@ class EXGFilter:
 #      in between, holding the key for <1 ms. Anything that reads key STATE once
 #      per frame (SDL, Unity, most games/emulators) has a 16.7 ms window at 60 fps.
 #      A sub-millisecond tap lands between polls and is never observed. This is the
-#      "sometimes it doesn't press" symptom, and it is independent of the library.
+# "sometimes it doesn't press" symptom, and it is independent of the library.
 #   2. INJECTION LAYER. On Linux pynput uses XTest. XTest events do not reach
 #      Wayland-native apps at all, and are ignored by anything reading evdev
 #      directly. uinput injects at kernel level, so it is indistinguishable from a
@@ -291,7 +315,7 @@ def describe_session():
         bits.append("wayland=yes")
     if os.environ.get("DISPLAY"):
         bits.append(f"display={os.environ['DISPLAY']}")
-    return "  ".join(bits)
+    return " ".join(bits)
 
 
 def build_key_backend(choice, hold_s):
@@ -322,7 +346,7 @@ def build_key_backend(choice, hold_s):
             if want == "pynput":
                 b = PynputBackend(hold_s)
                 if is_linux and wayland:
-                    notes.append(" Wayland session + pynput: XTest injection does "
+                    notes.append("[WARN] Wayland session + pynput: XTest injection does "
                                  "NOT reach Wayland-native apps. Presses will be "
                                  "logged but many programs will never see them. "
                                  "Use --key_backend uinput.")
@@ -332,17 +356,23 @@ def build_key_backend(choice, hold_s):
             if want == "none":
                 return NullBackend(hold_s), notes
         except Exception as ex:
-            notes.append(f"   {want}: unavailable ({ex})")
+            notes.append(f" {want}: unavailable ({ex})")
 
-    notes.append("   falling back to logging only")
+    notes.append(" falling back to logging only")
     return NullBackend(hold_s), notes
 
 
-def parse_class_thresholds(spec, classes, default):
-    """'flexion=0.51,extension=0.96' -> {'flexion':0.51, ...}; rest default."""
+def parse_class_thresholds(spec, classes, default, strict=True):
+    """'flexion=0.51,extension=0.96' -> {'flexion':0.51, ...}; rest default.
+
+    strict=False is used for the built-in defaults, which are tuned for one
+    particular class set. A model trained with different class names must not
+    abort startup over thresholds the user never typed - unknown names are just
+    skipped and those classes fall back to --confidence_threshold."""
     out = {c: default for c in classes}
     if not spec:
         return out
+    skipped = []
     for part in spec.split(","):
         part = part.strip()
         if not part:
@@ -352,9 +382,15 @@ def parse_class_thresholds(spec, classes, default):
         name, val = part.split("=", 1)
         name = name.strip()
         if name not in out:
-            raise SystemExit(f"--class_thresholds: unknown class '{name}'. "
-                             f"Known: {', '.join(classes)}")
+            if strict:
+                raise SystemExit(f"--class_thresholds: unknown class '{name}'. "
+                                 f"Known: {', '.join(classes)}")
+            skipped.append(name)
+            continue
         out[name] = float(val)
+    if skipped:
+        print(f"[NOTE] built-in class thresholds for {skipped} do not apply to this "
+              f"model (classes: {', '.join(classes)}); those entries were ignored.")
     return out
 
 
@@ -385,13 +421,13 @@ def key_thread_main(state, backend, q, press_mode="tap", watchdog_s=0.4,
                 try:
                     backend.tap(button)
                 except Exception as ex:
-                    print(f"\r\033[K key send failed ({button}): {ex}")
+                    print(f"\r\033[K[ERROR] key send failed ({button}): {ex}")
                     continue
                 state.key_ms = (time.perf_counter() - t0) * 1000.0
-                print(f"\r\033[K {button.upper():5s} tap  "
+                print(f"\r\033[K[KEY] {button.upper():5s} tap "
                       f"[{backend.name.split()[0]}, hold {backend.hold_s*1000:.0f}ms, "
                       f"took {state.key_ms:.1f}ms]"
-                      + (f"  dropped:{state.dropped_keys}" if state.dropped_keys else ""))
+                      + (f" dropped:{state.dropped_keys}" if state.dropped_keys else ""))
                 continue
 
             # ---- hold mode ----
@@ -404,7 +440,7 @@ def key_thread_main(state, backend, q, press_mode="tap", watchdog_s=0.4,
             if desired is not None and last and (time.time() - last) > watchdog_s:
                 desired = None
                 if held is not None:
-                    print(f"\r\033[K  no prediction for {watchdog_s*1000:.0f}ms "
+                    print(f"\r\033[K[WARN] no prediction for {watchdog_s*1000:.0f}ms "
                           f"-- releasing {held.upper()} (watchdog)")
 
             if desired != held:
@@ -415,14 +451,14 @@ def key_thread_main(state, backend, q, press_mode="tap", watchdog_s=0.4,
                     if desired is not None:
                         backend.key_down(desired)
                 except Exception as ex:
-                    print(f"\r\033[K key state change failed: {ex}")
+                    print(f"\r\033[K[ERROR] key state change failed: {ex}")
                     time.sleep(poll_s)
                     continue
                 state.key_ms = (time.perf_counter() - t0) * 1000.0
                 if desired is not None:
-                    print(f"\r\033[K  {desired.upper():5s} DOWN (holding)")
+                    print(f"\r\033[KDOWN {desired.upper():5s} DOWN (holding)")
                 else:
-                    print(f"\r\033[K  {held.upper():5s} UP")
+                    print(f"\r\033[KUP {held.upper():5s} UP")
                 held = desired
                 state.held_button = held
             time.sleep(poll_s)
@@ -441,6 +477,22 @@ def key_thread_main(state, backend, q, press_mode="tap", watchdog_s=0.4,
 # Device resolution
 # ==============================
 DEFAULT_CHANNELS_PER_DEVICE = 3
+
+
+def device_name_matches(name):
+    """True if `name` is one of our bands.
+
+    Matched case-insensitively on purpose: the firmware advertises
+    'NPG-Lite-band-3CH:...' (lowercase b) and casing has flipped between
+    firmware builds, which is what silently produced "no devices found" in the
+    other scripts.
+
+    The prefix still ends at '-band' deliberately: it must NOT match other
+    NPG-Lite boards such as 'NPG-Lite-6CH:...', because
+    DEFAULT_CHANNELS_PER_DEVICE above is hardcoded to the band's channel count
+    rather than parsed from the advertised name.
+    """
+    return bool(name) and name.lower().startswith(DEVICE_NAME_PREFIX.lower())
 
 def resolve_all_known_devices(found):
     found_sorted = sorted(found, key=lambda d: d.address.upper())
@@ -497,9 +549,9 @@ class ControllerState:
         self.current_accel_y = 0.0
         self.accel_lock = threading.Lock()
         
-        # Gesture combination tracking with 300ms debounce
+        # Gesture combination tracking with 800ms debounce
         self.last_gesture_time = 0
-        self.debounce_time_ms = 300  # 300ms debounce
+        self.debounce_time_ms = 300  # 800ms debounce
         self.last_button_pressed = None
         
         # Button press callback
@@ -542,12 +594,12 @@ class ControllerState:
         self.movement_window_s = 0.25          # look back this far to measure motion
         self.velocity_frac = 0.25              # threshold as fraction of calib range
         self.velocity_threshold = None         # set in calculate_thresholds()
-        self.up_is_positive = True             # sign of "up" on this axis
+        self.up_is_positive = True  # sign of "up" on this axis
         self.last_delta = 0.0
 
         # POSITION mode: classify where the arm IS (up / rest / down), then pinch fires.
-        self.pinch_mode = "position"        # "position" or "velocity"
-        self.pos_state = "rest"            # up | rest | down
+        self.pinch_mode = "position"  # "position" or "velocity"
+        self.pos_state = "rest"  # up | rest | down
         self.pos_value = 0.0               # signed, + = toward up, in raw counts
         self.accel_smooth = None           # EMA smoother
         self.accel_smooth_alpha = 0.4
@@ -568,7 +620,7 @@ class ControllerState:
         self.class_thresholds = {}
         self.active_thr = 0.0
         # hold mode
-        self.press_mode = "tap"        # "tap" or "hold"
+        self.press_mode = "tap"  # "tap" or "hold"
         self.desired_button = None     # what SHOULD be down now (model thread writes)
         self.held_button = None        # what IS down (key thread writes; display only)
         self.last_pred_time = 0.0      # watchdog feed
@@ -617,12 +669,12 @@ class ControllerState:
         self.countdown_start_time = time.time()
         
         print("\n" + "="*60)
-        print(" CALIBRATION SEQUENCE STARTING")
+        print("[CAL] CALIBRATION SEQUENCE STARTING")
         print("="*60)
         print("\nYou will be guided through 3 steps:")
-        print("  1 UP position")
-        print("  2 DOWN position")
-        print("  3 REST position")
+        print(" 1 UP position")
+        print(" 2 DOWN position")
+        print(" 3 REST position")
         print("\nEach step has a 2-second countdown to prepare.")
         print("Please follow the instructions carefully.\n")
         
@@ -631,11 +683,11 @@ class ControllerState:
     def get_calibration_phase_info(self):
         """Get current calibration phase information"""
         if self.calibration_step == 0:
-            return "UP", "  Hold your hand UP", "Raise your hand above neutral position"
+            return "UP", "UP Hold your hand UP", "Raise your hand above neutral position"
         elif self.calibration_step == 1:
-            return "DOWN", "  Hold your hand DOWN", "Lower your hand below neutral position"
+            return "DOWN", "DOWN Hold your hand DOWN", "Lower your hand below neutral position"
         else:
-            return "REST", " REST your hand", "Keep your hand relaxed and still"
+            return "REST", "REST REST your hand", "Keep your hand relaxed and still"
     
     def collect_calibration_sample(self):
         """Collect accelerometer sample during calibration"""
@@ -651,14 +703,14 @@ class ControllerState:
                 phase_name, _, _ = self.get_calibration_phase_info()
                 # Show countdown
                 countdown_dots = "." * int((2 - remaining) * 5)  # Create animation effect
-                print(f"\r  Get ready for {phase_name}: {remaining:.1f}s {countdown_dots}", end="")
+                print(f"\r[TIME] Get ready for {phase_name}: {remaining:.1f}s {countdown_dots}", end="")
                 return False
             else:
                 self.countdown_active = False
                 phase_name, instruction, detail = self.get_calibration_phase_info()
-                print(f"\n{phase_name} - {instruction}")
-                print(f"   {detail}")
-                print(f"    Recording {self.samples_needed} samples...")
+                print(f"\n[OK] {phase_name} - {instruction}")
+                print(f" {detail}")
+                print(f"[DATA] Recording {self.samples_needed} samples...")
                 self.collected_samples = 0
                 return False
         
@@ -684,31 +736,31 @@ class ControllerState:
             progress = int((self.collected_samples / self.samples_needed) * 100)
             bar_length = 20
             filled = int((progress / 100) * bar_length)
-            bar = "█" * filled + "░" * (bar_length - filled)
-            print(f"\r  {phase_name}: [{bar}] {progress}% ({self.collected_samples}/{self.samples_needed})", end="")
+            bar = "#" * filled + "." * (bar_length - filled)
+            print(f"\r {phase_name}: [{bar}] {progress}% ({self.collected_samples}/{self.samples_needed})", end="")
         
         if self.collected_samples >= self.samples_needed:
-            print(f"\n {phase_name} calibration complete! ({self.collected_samples} samples)")
+            print(f"\n [OK] {phase_name} calibration complete! ({self.collected_samples} samples)")
             self.calibration_step += 1
             self.collected_samples = 0
             
             if self.calibration_step == 1:
-                print("\n" + "─"*40)
+                print("\n" + "-"*40)
                 print("Step 2: DOWN position")
-                print("─"*40)
+                print("-"*40)
                 self.countdown_active = True
                 self.countdown_value = 2
                 self.countdown_start_time = time.time()
-                print("  Get ready for DOWN: 2.0s ...")
+                print("[TIME] Get ready for DOWN: 2.0s ...")
                 
             elif self.calibration_step == 2:
-                print("\n" + "─"*40)
+                print("\n" + "-"*40)
                 print("Step 3: REST position")
-                print("─"*40)
+                print("-"*40)
                 self.countdown_active = True
                 self.countdown_value = 2
                 self.countdown_start_time = time.time()
-                print("  Get ready for REST: 2.0s ...")
+                print("[TIME] Get ready for REST: 2.0s ...")
                 
             else:
                 # All calibration complete
@@ -723,7 +775,7 @@ class ControllerState:
         if len(self.calibration_data["up"]) < self.samples_needed or \
            len(self.calibration_data["down"]) < self.samples_needed or \
            len(self.calibration_data["rest"]) < self.samples_needed:
-            print(" Calibration incomplete! Please run calibration again.")
+            print("[ERROR] Calibration incomplete! Please run calibration again.")
             return False
         
         # Median, not mean: one twitch during a 50-sample hold used to drag the
@@ -759,22 +811,22 @@ class ControllerState:
         self.status_msg = "Calibrated successfully!"
         
         print("\n" + "="*50)
-        print("CALIBRATION COMPLETE!")
+        print("[OK] CALIBRATION COMPLETE!")
         print("="*50)
-        print(f"  UP mean:   {up_mean:.2f}")
-        print(f"  REST mean: {self.rest_mean:.2f}")
-        print(f"  DOWN mean: {down_mean:.2f}")
-        print(f"  Range: {movement_range:.0f}  |  'up' is "
+        print(f" UP mean: {up_mean:.2f}")
+        print(f" REST mean: {self.rest_mean:.2f}")
+        print(f" DOWN mean: {down_mean:.2f}")
+        print(f" Range: {movement_range:.0f} | 'up' is "
               f"{'increasing' if self.up_is_positive else 'decreasing'} accel_y")
-        print(f"  spread (std):  up {up_sd:.0f}  rest {rest_sd:.0f}  down {down_sd:.0f}")
-        print(f"  up span {self.up_span:.0f}  |  down span {self.down_span:.0f}")
+        print(f" spread (std): up {up_sd:.0f} rest {rest_sd:.0f} down {down_sd:.0f}")
+        print(f" up span {self.up_span:.0f} | down span {self.down_span:.0f}")
         if self.pinch_mode == "position":
-            print(f"  UP   when accel passes {self.rest_mean + s_up(self):.0f} "
+            print(f" UP when accel passes {self.rest_mean + s_up(self):.0f} "
                   f"(back to rest below {self.rest_mean + s_up(self, exit=True):.0f})")
-            print(f"  DOWN when accel passes {self.rest_mean + s_dn(self):.0f} "
+            print(f" DOWN when accel passes {self.rest_mean + s_dn(self):.0f} "
                   f"(back to rest above {self.rest_mean + s_dn(self, exit=True):.0f})")
         else:
-            print(f"  Velocity threshold: {self.velocity_threshold:.0f} "
+            print(f" Velocity threshold: {self.velocity_threshold:.0f} "
                   f"per {self.movement_window_s*1000:.0f} ms")
         print("="*50)
 
@@ -782,22 +834,22 @@ class ControllerState:
         # "DOWN armed while stationary" behaviour, so say so loudly now instead.
         lo, hi = min(up_mean, down_mean), max(up_mean, down_mean)
         if not (lo < self.rest_mean < hi):
-            print(" WARNING: REST is NOT between UP and DOWN. Your rest pose "
+            print("[WARN] WARNING: REST is NOT between UP and DOWN. Your rest pose "
                   "overlaps an extreme -- pinch will fire that direction while idle.")
-            print("    Recalibrate, holding REST in the exact pose you actually "
+            print(" Recalibrate, holding REST in the exact pose you actually "
                   "play in.")
         if min(self.up_span, self.down_span) < 3 * max(up_sd, down_sd, rest_sd):
-            print(" WARNING: poses are barely separated relative to how much "
+            print("[WARN] WARNING: poses are barely separated relative to how much "
                   "you wobbled. Hold each position still, or move further.")
         if min(self.up_span, self.down_span) < 500:
-            print(" WARNING: one span is tiny -- up/down will be unreliable.")
-        print("\n System ready for gesture control!")
-        print(f" {self.debounce_time_ms}ms debounce time between button presses")
+            print("[WARN] WARNING: one span is tiny -- up/down will be unreliable.")
+        print("\n[GAME] System ready for gesture control!")
+        print(f"[TIME] {self.debounce_time_ms}ms debounce time between button presses")
         if self.pinch_mode == "position":
-            print(" Hold the arm UP or DOWN, then PINCH to fire that direction.")
-            print("   Pinching at REST does nothing.")
+            print("[NOTE] Hold the arm UP or DOWN, then PINCH to fire that direction.")
+            print(" Pinching at REST does nothing.")
         else:
-            print(" Remember: Up/Down buttons require PINCH + MOVEMENT together!")
+            print("[NOTE] Remember: Up/Down buttons require PINCH + MOVEMENT together!")
         print("\nPress Ctrl+C to stop\n")
         return True
     
@@ -963,33 +1015,42 @@ class ControllerState:
 # BLE handling
 # ==============================
 def ble_thread_main(state):
+    def fail(msg):
+        """Single place where a BLE problem becomes visible to the rest of the app.
+        Previously an exception anywhere in run() escaped asyncio.run() inside this
+        daemon thread: the thread died, state.running stayed True, status_msg stayed
+        'connecting...', and the main loop printed 'Waiting for accelerometer
+        data...' forever with no error and no exit."""
+        state.status_msg = f"ERROR: {msg}"
+        state.running = False
+        print(f"\r\033[K[ERROR] BLE: {msg}")
+
     async def run():
         state.status_msg = f"scanning for {DEVICE_NAME_PREFIX}*..."
-        print("🔍 Scanning for NPG-Lite devices...")
+        print("[SCAN] Scanning for NPG-Lite devices...")
         devices = await BleakScanner.discover(timeout=6)
-        found = [d for d in devices if d.name and d.name.startswith(DEVICE_NAME_PREFIX)]
+        found = [d for d in devices if device_name_matches(d.name)]
         if not found:
             state.status_msg = "ERROR: no NPG-Lite device found"
             state.running = False
-            print(" ERROR: No NPG-Lite device found. Make sure your device is powered on and in range.")
+            print("[ERROR] ERROR: No NPG-Lite device found. Make sure your device is powered on and in range.")
             return
         
-        print(f" Found {len(found)} device(s): {[d.name for d in found]}")
+        print(f"[OK] Found {len(found)} device(s): {[d.name for d in found]}")
         resolved = resolve_all_known_devices(found)
         if not resolved:
-            state.status_msg = "ERROR: could not resolve any discovered devices"
-            state.running = False
+            fail("could not resolve any discovered devices")
             return
-        
+
         total_emg_channels = sum(ch for _, _, ch in resolved)
         total_channels = total_emg_channels + 3 * len(resolved)
         if total_channels != state.num_channels:
             roles_found = [role for _, role, _ in resolved]
-            state.status_msg = (f"ERROR: connected devices {roles_found} provide "
-                               f"{total_emg_channels}ch EMG + {3 * len(resolved)}ch accel = "
-                               f"{total_channels}ch total but model expects "
-                               f"{state.num_channels}ch")
-            state.running = False
+            fail(f"connected devices {roles_found} provide {total_emg_channels}ch EMG "
+                 f"+ {3 * len(resolved)}ch accel = {total_channels}ch total, but the "
+                 f"model expects {state.num_channels}ch. Discovery accepts every board "
+                 f"whose name starts with '{DEVICE_NAME_PREFIX}', so a second powered-on "
+                 f"band doubles the channel count - power the extra board off and re-run.")
             return
         
         role_order = [role for _, role, _ in resolved]
@@ -1050,33 +1111,73 @@ def ble_thread_main(state):
                         device_queues[role].append(sample)
             return handle_notify
         
+        # `clients` is appended to as soon as each connect succeeds, and the
+        # whole block below sits inside one try/finally, so a failure partway
+        # through a multi-board connect still tears down the boards that DID
+        # come up instead of leaving them connected and streaming.
         clients = []
-        for dev, role, channels in resolved:
-            state.status_msg = f"connecting to {role} ({dev.address})..."
-            print(f" Connecting to {role} ({dev.address})...")
-            client = BleakClient(dev.address)
-            await client.connect()
-            filters = per_device_filters[role]
-            await client.start_notify(
-                DATA_CHAR_UUID,
-                make_handler(role, channels, filters["notch"], filters["emg"]),
-            )
+        try:
+            for dev, role, channels in resolved:
+                state.status_msg = f"connecting to {role} ({dev.address})..."
+                print(f"[LINK] Connecting to {role} ({dev.address})...")
+                client = BleakClient(dev.address)
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    fail(f"timed out connecting to {role} ({dev.address}) after 15s")
+                    return
+                except Exception as ex:
+                    fail(f"could not connect to {role} ({dev.address}): {ex}")
+                    return
+                clients.append(client)
+                filters = per_device_filters[role]
+                try:
+                    await client.start_notify(
+                        DATA_CHAR_UUID,
+                        make_handler(role, channels, filters["notch"], filters["emg"]),
+                    )
+                except Exception as ex:
+                    fail(f"could not subscribe to EMG data on {role}: {ex}")
+                    return
+                try:
+                    await client.start_notify(IMU_CHAR_UUID, make_imu_handler(role))
+                    print(f"[IMU] IMU notifications started for {role}")
+                except Exception as e:
+                    print(f"[WARN] (warning) IMU characteristic not available for {role} ({e})")
+            state.status_msg = f"connected: {'+'.join(role_order)}"
+            print(f"[OK] Connected to {len(clients)} device(s): {role_order}")
+
             try:
-                await client.start_notify(IMU_CHAR_UUID, make_imu_handler(role))
-                print(f" IMU notifications started for {role}")
-            except Exception as e:
-                print(f"  (warning) IMU characteristic not available for {role} ({e})")
-            clients.append(client)
-        state.status_msg = f"connected: {'+'.join(role_order)}"
-        print(f" Connected to {len(clients)} device(s): {role_order}")
-        
-        await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True) for c in clients))
-        await asyncio.sleep(0.1)
-        await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"START", response=True) for c in clients))
-        state.status_msg = f"streaming: {'+'.join(role_order)}"
-        print(" Streaming started. Ready for calibration and gestures!\n")
-        
+                await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True)
+                                       for c in clients))
+                await asyncio.sleep(0.1)
+                await asyncio.gather(*(c.write_gatt_char(CONTROL_CHAR_UUID, b"START", response=True)
+                                       for c in clients))
+            except Exception as ex:
+                fail(f"could not start streaming: {ex}")
+                return
+            state.status_msg = f"streaming: {'+'.join(role_order)}"
+            print("[DATA] Streaming started. Ready for calibration and gestures!\n")
+
+            await stream_loop(clients, resolved, role_order, device_queues,
+                              queue_lock, latest_accel, accel_lock)
+        finally:
+            await shutdown(clients)
+
+    async def stream_loop(clients, resolved, role_order, device_queues,
+                          queue_lock, latest_accel, accel_lock):
+        last_link_check = time.time()
         while state.running:
+            # A dropped device leaves its queue permanently empty, so the
+            # all-queues-non-empty condition below never fires and this loop
+            # spins forever producing no windows. Poll the link instead.
+            if time.time() - last_link_check > 1.0:
+                last_link_check = time.time()
+                for c, (_, role, _) in zip(clients, resolved):
+                    if not c.is_connected:
+                        fail(f"device {role} disconnected while streaming")
+                        return
+
             merged_sample = None
             with queue_lock:
                 if all(device_queues[r] for r in role_order):
@@ -1102,23 +1203,29 @@ def ble_thread_main(state):
                 state.window_ready.set()
             # NOTE: the gesture/button check used to live here, running ~500x/sec.
             # It now runs in the model thread, once per new prediction.
-        
+
+    async def shutdown(clients):
+        """Best-effort teardown, individually timed out per step. This used to
+        sit at the end of run() outside any finally:, so every early `return`
+        (dropped link, channel mismatch) skipped it entirely and left the board
+        connected and streaming."""
+        async def attempt(coro):
+            try:
+                await asyncio.wait_for(coro, timeout=DISCONNECT_TIMEOUT_S)
+            except Exception:
+                pass  # already gone / unresponsive
+
         for c in clients:
-            try:
-                await c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True)
-                await c.stop_notify(DATA_CHAR_UUID)
-            except Exception:
-                pass
-            try:
-                await c.stop_notify(IMU_CHAR_UUID)
-            except Exception:
-                pass
-            try:
-                await c.disconnect()
-            except Exception:
-                pass
+            await attempt(c.write_gatt_char(CONTROL_CHAR_UUID, b"STOP", response=True))
+            await attempt(c.stop_notify(DATA_CHAR_UUID))
+            await attempt(c.stop_notify(IMU_CHAR_UUID))
+            await attempt(c.disconnect())
+
     
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    except Exception as ex:
+        fail(f"BLE thread crashed: {ex}")
 
 
 # ==============================
@@ -1157,6 +1264,7 @@ class FastPredictor:
 def model_thread_main(state, predictor, threshold, votes_needed=2):
     """Blocks on an event instead of polling. Runs the vote, then does the
     button check once per new prediction."""
+    consecutive_errors = 0
     while state.running:
         if not state.window_ready.wait(timeout=0.2):
             continue
@@ -1169,7 +1277,20 @@ def model_thread_main(state, predictor, threshold, votes_needed=2):
             continue
 
         t0 = time.perf_counter()
-        probs = predictor(window)
+        try:
+            probs = predictor(window)
+        except Exception as ex:
+            # Without this the daemon thread dies silently and the status line
+            # freezes on the last prediction forever, with no error anywhere.
+            consecutive_errors += 1
+            state.status_msg = f"ERROR: inference failed ({ex})"
+            print(f"\r\033[K[ERROR] inference failed ({consecutive_errors}): {ex}")
+            if consecutive_errors >= 5:
+                print("[ERROR] inference failed 5x in a row -- stopping.")
+                state.running = False
+            time.sleep(0.05)
+            continue
+        consecutive_errors = 0
         infer_ms = (time.perf_counter() - t0) * 1000.0
 
         top_idx = int(np.argmax(probs))
@@ -1246,8 +1367,7 @@ def main():
     ap.add_argument("--infer_stride", type=int, default=25,
                    help="samples between inferences. 25 @ 500Hz = 50ms = 20 predictions/sec. "
                         "This is INDEPENDENT of the training stride in meta.json.")
-    ap.add_argument("--class_thresholds",
-                   default="flexion=0.50,extension=0.91,pinch=0.66,rest=0.50",
+    ap.add_argument("--class_thresholds", default=None,
                    help="per-class confidence thresholds, e.g. "
                         "'flexion=0.51,extension=0.96'. Defaults were derived from "
                         "replay_buffer.npz with tune_thresholds.py: they equalise "
@@ -1258,7 +1378,8 @@ def main():
                         "flexion if you see spurious LEFT presses, lower it toward "
                         "0.39 for maximum speed. RE-DERIVE AFTER RETRAINING -- these "
                         "are properties of one model. Any class not listed falls "
-                        "back to --confidence_threshold.")
+                        f"back to --confidence_threshold. Default: "
+                        f"'{DEFAULT_CLASS_THRESHOLDS}'.")
     ap.add_argument("--votes", type=int, default=5,
                    help="window vote buffer size (default 5 = 250ms @ 20/sec)")
     ap.add_argument("--votes_needed", type=int, default=4,
@@ -1313,10 +1434,10 @@ def main():
                         "Off by default: one gesture = one press, and you must "
                         "return to rest before that button fires again.")
     ap.add_argument("--movement_sustain_ms", type=int, default=120,
-                   help="how long accel movement must be sustained for up/down (default 200ms)")
+                   help="how long accel movement must be sustained for up/down (default 120ms)")
     args = ap.parse_args()
     
-    with open(os.path.join(args.model_dir, "meta.json")) as f:
+    with open(os.path.join(args.model_dir, "meta.json"), encoding="utf-8") as f:
         meta = json.load(f)
     
     window_size = meta["window_size"]
@@ -1326,7 +1447,15 @@ def main():
     mean = np.array(meta["scaler_mean"], dtype=np.float32)
     std = np.array(meta["scaler_std"], dtype=np.float32)
     
-    print(f" Loading model from {args.model_dir}...")
+    if meta["sampling_rate"] not in SUPPORTED_SAMPLING_RATES:
+        raise SystemExit(
+            f"[ERROR] meta.json sampling_rate={meta['sampling_rate']} Hz is not supported.\n"
+            " NotchFilter/EXGFilter only have coefficients for "
+            f"{SUPPORTED_SAMPLING_RATES} Hz. At any other rate the EMG filters "
+            "silently emit zeros and every prediction is meaningless while still "
+            "looking confident. Retrain at a supported rate, or add coefficients.")
+
+    print(f"[LOAD] Loading model from {args.model_dir}...")
     model = keras.models.load_model(os.path.join(args.model_dir, "model.keras"))
     
     state = ControllerState(num_channels, window_size, stride, classes, args.confidence_threshold)
@@ -1336,47 +1465,52 @@ def main():
     state.vote_history = deque(maxlen=args.votes)
     state.movement_sustain_s = args.movement_sustain_ms / 1000.0
     state.same_button_ms = args.same_button_ms
+    # Only names the USER typed are hard errors. The built-in defaults are tuned
+    # for one particular class set, so a model trained with different classes
+    # must not abort startup over a flag that was never passed.
+    user_supplied = args.class_thresholds is not None
     state.class_thresholds = parse_class_thresholds(
-        args.class_thresholds, classes, args.confidence_threshold)
+        args.class_thresholds if user_supplied else DEFAULT_CLASS_THRESHOLDS,
+        classes, args.confidence_threshold, strict=user_supplied)
     state.velocity_frac = args.velocity_frac
     state.pinch_mode = args.pinch_mode
     state.pos_enter_frac = args.pos_enter_frac
     state.pos_exit_frac = args.pos_exit_frac
     if state.pos_exit_frac >= state.pos_enter_frac:
-        print("  pos_exit_frac >= pos_enter_frac disables hysteresis; clamping.")
+        print("[WARN] pos_exit_frac >= pos_enter_frac disables hysteresis; clamping.")
         state.pos_exit_frac = state.pos_enter_frac * 0.6
     state.movement_window_s = args.movement_window_ms / 1000.0
     state.require_release = not args.allow_hold_repeat
     state.press_mode = args.press_mode
     state.hold_votes = max(1, min(args.hold_votes, args.votes_needed))
     if state.hold_votes != args.hold_votes:
-        print(f"  hold_votes clamped to {state.hold_votes} "
+        print(f"[WARN] hold_votes clamped to {state.hold_votes} "
               f"(must be between 1 and votes_needed={args.votes_needed})")
 
     latency_ms = 1000.0 * args.infer_stride / meta["sampling_rate"]
-    print(f"  window {window_size} samples "
+    print(f"[CFG] window {window_size} samples "
           f"({1000.0*window_size/meta['sampling_rate']:.0f} ms) | "
           f"inference every {args.infer_stride} samples ({latency_ms:.0f} ms) | "
-          f"training stride in meta.json was {stride} — deliberately NOT reused")
+          f"training stride in meta.json was {stride} -- deliberately NOT reused")
     
     # ---- keyboard backend ----
-    print(f"  {describe_session()}")
+    print(f"[SYS] {describe_session()}")
     hold_s = max(0.0, args.key_hold_ms / 1000.0)
     if args.dry_run:
-        key_backend, backend_notes = NullBackend(hold_s), ["   (dry run: no keystrokes sent)"]
+        key_backend, backend_notes = NullBackend(hold_s), [" (dry run: no keystrokes sent)"]
         key_backend.name = "none (dry run)"
     else:
         key_backend, backend_notes = build_key_backend(args.key_backend, hold_s)
     for n in backend_notes:
         print(n)
-    print(f"  key backend: {key_backend.name}  |  hold {args.key_hold_ms}ms")
+    print(f"[KBD] key backend: {key_backend.name} | hold {args.key_hold_ms}ms")
     if isinstance(key_backend, NullBackend) and not args.dry_run:
-        print("   No working injection backend. To enable uinput on Linux:")
-        print("     sudo modprobe uinput")
-        print("     sudo usermod -aG input $USER      # then log out and back in")
-        print("     echo 'KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\", "
+        print(" No working injection backend. To enable uinput on Linux:")
+        print(" sudo modprobe uinput")
+        print(" sudo usermod -aG input $USER # then log out and back in")
+        print(" echo 'KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\", "
               "OPTIONS+=\"static_node=uinput\"' | sudo tee /etc/udev/rules.d/99-uinput.rules")
-        print("     sudo udevadm control --reload-rules && sudo udevadm trigger")
+        print(" sudo udevadm control --reload-rules && sudo udevadm trigger")
 
     # Bounded queue: a tap now blocks for key_hold_ms, so it must not run on the
     # model thread. Dropping a stale keystroke beats building a backlog.
@@ -1399,13 +1533,14 @@ def main():
     state.set_button_callback(on_button_press)
     
     # Start BLE thread
-    threading.Thread(target=ble_thread_main, args=(state,), daemon=True).start()
+    ble_thread = threading.Thread(target=ble_thread_main, args=(state,), daemon=True)
+    ble_thread.start()
     
     # Build traced predictor (compiles the graph now, so the first gesture
     # is not slowed down by tracing)
-    print(" Tracing inference graph...")
+    print("[INIT] Tracing inference graph...")
     predictor = FastPredictor(model, mean, std, window_size, num_channels)
-    print(" Inference graph ready")
+    print("[OK] Inference graph ready")
 
     # Start model thread
     threading.Thread(target=model_thread_main,
@@ -1413,46 +1548,74 @@ def main():
                     daemon=True).start()
     
     print("\n" + "="*60)
-    print("🎮 GESTURE CONTROLLER")
+    print("[GAME] GESTURE CONTROLLER")
     print("="*60)
     print("\nControls:")
     if args.pinch_mode == "position":
-        print("   Arm held UP   + PINCH → UP button")
-        print("   Arm held DOWN + PINCH → DOWN button")
-        print("   Arm at REST   + PINCH → nothing")
+        print(" PINCH Arm held UP + PINCH -> UP button")
+        print(" PINCH Arm held DOWN + PINCH -> DOWN button")
+        print(" PINCH Arm at REST + PINCH -> nothing")
     else:
-        print("   PINCH + Moving UP     → UP button")
-        print("   PINCH + Moving DOWN   → DOWN button")
-    print("   FLEXION              → LEFT button")
-    print("   EXTENSION            → RIGHT button")
+        print(" PINCH PINCH + Moving UP -> UP button")
+        print(" PINCH PINCH + Moving DOWN -> DOWN button")
+    print(" EMG FLEXION -> LEFT button")
+    print(" EMG EXTENSION -> RIGHT button")
+    print()
     if args.press_mode == "hold":
-        print(f"\n HOLD mode: key stays down while the gesture is held "
-              f"(enter {args.votes_needed}/{args.votes}, keep {state.hold_votes}/{args.votes}, "
-              f"watchdog {args.key_watchdog_ms}ms)")
+        print("[CAR] " + "="*56)
+        print("[CAR] PRESS MODE: HOLD -- key stays DOWN while the gesture is held")
+        print(f"[CAR] enter {args.votes_needed}/{args.votes} votes | keep {state.hold_votes}/{args.votes} | "
+              f"watchdog {args.key_watchdog_ms}ms")
+        print("[CAR] " + "="*56)
     else:
-        print(f"\n  TAP mode: {state.debounce_time_ms}ms debounce between presses")
-    print(f" vote {args.votes_needed}-of-{args.votes} | thresholds: "
-          + "  ".join(f"{c}={state.class_thresholds[c]:.2f}" for c in classes))
+        print("[TIME] " + "="*56)
+        print(f"[TIME] PRESS MODE: TAP -- one gesture = one {args.key_hold_ms}ms keystroke")
+        print(f"[TIME] debounce {state.debounce_time_ms}ms | same button {args.same_button_ms}ms")
+        print("[TIME] For a driving/racing game you want: --press_mode hold")
+        print("[TIME] " + "="*56)
+    print(f"[KEY] vote {args.votes_needed}-of-{args.votes} | thresholds: "
+          + " ".join(f"{c}={state.class_thresholds[c]:.2f}" for c in classes))
     if args.pinch_mode == "position":
-        print("\n  Up/Down come from ARM POSITION. Pinch only triggers.")
+        print("\n[WARN] Up/Down come from ARM POSITION. Pinch only triggers.")
     else:
-        print("\n  IMPORTANT: Up/Down buttons require BOTH pinch AND movement!")
+        print("\n[WARN] IMPORTANT: Up/Down buttons require BOTH pinch AND movement!")
     if args.pinch_mode != "position":
-        print("   Static pinch alone will NOT trigger up/down buttons.")
+        print(" Static pinch alone will NOT trigger up/down buttons.")
     print("\n" + "="*60)
-    print("\n Starting calibration sequence automatically...\n")
+    print("\nMOVING Starting calibration sequence automatically...\n")
     
     try:
         # Start calibration automatically
         calibrating = False
         drift_warned = 0.0
         
+        waiting_since = time.time()
         while state.running:
             # Check if we have accelerometer data
             if state.current_accel_y == 0:
-                print("\r⏳ Waiting for accelerometer data...", end="")
+                waited = time.time() - waiting_since
+                if waited > ACCEL_WAIT_TIMEOUT_S:
+                    # The BLE thread treats a missing IMU characteristic as
+                    # non-fatal (it warns and keeps streaming EMG), so without
+                    # this timeout the loop printed "Waiting..." forever and the
+                    # only way out was Ctrl+C.
+                    print(f"\r\033[K[ERROR] No accelerometer data after "
+                          f"{ACCEL_WAIT_TIMEOUT_S:.0f}s.")
+                    print(" Up/Down need the IMU, and calibration cannot start "
+                          "without it. Check that:")
+                    print("  - the band is powered on and the firmware exposes the "
+                          "IMU characteristic")
+                    print("  - the earlier '(warning) IMU characteristic not "
+                          "available' line did not appear above")
+                    print(" Flexion/extension (LEFT/RIGHT) do not need the IMU - "
+                          "reflash or use a build with IMU support to get UP/DOWN.")
+                    state.running = False
+                    break
+                print(f"\r[WAIT] Waiting for accelerometer data... "
+                      f"({ACCEL_WAIT_TIMEOUT_S - waited:.0f}s)", end="")
                 time.sleep(1)
                 continue
+            waiting_since = time.time()
             
             # If not calibrated, prompt for calibration
             if not state.calibrated:
@@ -1490,14 +1653,15 @@ def main():
                         and time.time() - state.nonrest_since > 8.0
                         and time.time() - drift_warned > 20.0):
                     drift_warned = time.time()
-                    print(f"\r\033[K  arm has read {state.pos_state.upper()} for "
-                          f"8s+ without returning to REST. Calibrated rest is "
+                    print(f"\r\033[K[WARN] arm has read {state.pos_state.upper()} for "
+                          "8s+ without returning to REST. Calibrated rest is "
                           f"{state.rest_mean:.0f}, you are at "
                           f"{state.accel_smooth:.0f}. Pinch will fire "
                           f"{state.pos_state.upper()} while idle -- recalibrate.")
                 
                 # Build status string
                 status_parts = [
+                    "HOLD" if args.press_mode == "hold" else "TAP ",
                     f"{state.pred_class.upper():9s}",
                     f"raw:{state.raw_class[:4]:4s}",
                     f"p={state.top_prob:.2f}/{state.active_thr:.2f}",
@@ -1508,33 +1672,37 @@ def main():
                     f"key:{state.key_ms:4.0f}ms",
                 ]
                 if args.press_mode == "hold":
+                    # Read once: the key thread can set held_button to None
+                    # between the truth test and the .upper() call, which used to
+                    # raise AttributeError and kill this loop.
+                    held_now = state.held_button
                     status_parts.append(
-                        f" HOLDING {state.held_button.upper()}" if state.held_button
-                        else "—— no key")
+                        f"DOWN HOLDING {held_now.upper()}" if held_now
+                        else "---- no key")
                 
                 if state.blocked_button and args.press_mode == "tap":
-                    status_parts.append(f" held:{state.blocked_button} (release to re-fire)")
+                    status_parts.append(f"[HELD] held:{state.blocked_button} (release to re-fire)")
 
                 if debounce_remaining > 0:
-                    status_parts.append(f"  Debounce: {debounce_remaining/1000:.1f}s")
+                    status_parts.append(f"[TIME] Debounce: {debounce_remaining/1000:.1f}s")
                 
                 if args.pinch_mode == "position":
                     if is_pinch and state.pos_state != "rest":
-                        status_parts.append(f" PINCH @ {state.pos_state.upper()} → FIRE")
+                        status_parts.append(f"PINCH PINCH @ {state.pos_state.upper()} -> FIRE")
                     elif is_pinch:
-                        status_parts.append(" PINCH @ REST (no button)")
+                        status_parts.append("PINCH PINCH @ REST (no button)")
                     elif state.pos_state != "rest":
                         status_parts.append(f"arm {state.pos_state.upper()} (pinch to fire)")
                     else:
-                        status_parts.append("Idle")
+                        status_parts.append("idle Idle")
                 elif is_pinch and movement:
-                    status_parts.append(f"Moving {movement.upper()} → READY")
+                    status_parts.append(f"MOVING Moving {movement.upper()} -> READY")
                 elif is_pinch:
-                    status_parts.append("PINCH (move for button)")
+                    status_parts.append("REST PINCH (move for button)")
                 elif movement:
                     status_parts.append(f"Moving {movement.upper()} (need pinch)")
                 else:
-                    status_parts.append("Idle")
+                    status_parts.append("idle Idle")
                 
                 # \033[K clears to end of line. Without it, a shorter line leaves
                 # the tail of the previous longer one behind, which is where the
@@ -1546,7 +1714,7 @@ def main():
         pass
     finally:
         state.running = False
-        print("\n\n Stopping...")
+        print("\n\n[STOP] Stopping...")
         # The key thread is a daemon, so its finally: block is NOT guaranteed to
         # run at interpreter exit. Join it, then lift every key anyway -- a key
         # left down after Ctrl+C would keep driving the car.
@@ -1555,6 +1723,18 @@ def main():
         except Exception:
             pass
         release_all(key_backend)
+        # Same reasoning for the BLE thread: state.running = False only ASKS it
+        # to stop. Its teardown (STOP write, stop_notify, GATT disconnect) is
+        # async and takes hundreds of ms, and as a daemon it gets killed the
+        # instant main() returns - so without this join the board never receives
+        # its STOP, keeps streaming into a dead link, and stays "connected"
+        # until its own supervision timeout expires.
+        print("[BLE] Disconnecting device(s)...")
+        ble_thread.join(timeout=BLE_SHUTDOWN_TIMEOUT_S)
+        if ble_thread.is_alive():
+            print(f"[WARN] device did not disconnect cleanly within "
+                  f"{BLE_SHUTDOWN_TIMEOUT_S:.0f}s. If the next run cannot find "
+                  f"it, power-cycle the band.")
         print("Done.")
 
 

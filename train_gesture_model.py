@@ -280,6 +280,20 @@ def main():
                           "of the gesture windows.")
     args = ap.parse_args()
 
+    # window_dataframe() advances with `start += stride` while
+    # `start + window_size <= seg_end`. A zero/negative stride never advances
+    # (infinite loop appending windows until memory runs out) and a
+    # zero/negative window_size makes the guard meaningless, so reject both here
+    # rather than hanging halfway through a long training run.
+    if args.window_size <= 0:
+        raise SystemExit(f"--window_size must be positive, got {args.window_size}.")
+    if args.stride <= 0:
+        raise SystemExit(f"--stride must be positive, got {args.stride}.")
+    if args.stride > args.window_size:
+        print(f"  (warning) --stride {args.stride} > --window_size {args.window_size}: "
+              f"consecutive windows will skip {args.stride - args.window_size} "
+              f"sample(s) of every segment.")
+
     os.makedirs(args.out_dir, exist_ok=True)
 
     print("Loading CSVs...")
@@ -508,7 +522,7 @@ def main():
         "test_classification_report": report_dict,
         "test_confusion_matrix": cm.tolist(),
     }
-    with open(os.path.join(args.out_dir, "meta.json"), "w") as f:
+    with open(os.path.join(args.out_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 
     # Small labeled replay buffer (RAW, unnormalized windows) for later

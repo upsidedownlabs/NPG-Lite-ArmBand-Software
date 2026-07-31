@@ -1,6 +1,6 @@
 {
   "subjects": {
-    "aman": {
+    "AM": {
       "rest": {
         "sessions": [
           {
@@ -114,7 +114,7 @@
         ]
       }
     },
-    "aman2": {
+    "DK": {
       "rest": {
         "sessions": [
           {
@@ -228,7 +228,7 @@
         ]
       }
     },
-    "amanmove": {
+    "SK": {
       "rest": {
         "sessions": [
           {
@@ -342,7 +342,7 @@
         ]
       }
     },
-    "mt": {
+    "RP": {
       "rest": {
         "sessions": [
           {
@@ -456,7 +456,7 @@
         ]
       }
     },
-    "test": {
+    "KM": {
       "rest": {
         "sessions": [
           {
@@ -502,7 +502,7 @@
         ]
       }
     },
-    "aman300726": {
+    "RD": {
       "pinch": {
         "sessions": [
           {
