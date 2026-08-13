@@ -981,10 +981,16 @@ class ControllerState:
                 # Where the arm IS decides the direction; the pinch is the trigger.
                 # pos_state is hysteretic, so it does not chatter at the boundary.
                 pos = self.get_position()
-                return pos if pos in ("up", "down") else None
+                if pos == "up":
+                    return "down"
+                elif pos == "down":
+                    return "up"
+                return None
             # velocity mode: the pinch must coincide with actual motion
-            if movement in ("up", "down"):
-                return movement
+            if movement == "up":
+                return "down"
+            elif movement == "down":
+                return "up"
             return None
 
         if current_gesture == "flexion":
